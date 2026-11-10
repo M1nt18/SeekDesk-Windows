@@ -1,0 +1,43 @@
+name: Publish GitHub release
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - VERSION
+      - BUILD_NUMBER
+      - .github/workflows/release.yml
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check version and scripts
+        run: |
+          bash -n scripts/*.sh
+          test "$(cat VERSION)" = "$(plutil -extract CFBundleShortVersionString raw Distribution/Info.plist)"
+          test "$(cat BUILD_NUMBER)" = "$(plutil -extract CFBundleVersion raw Distribution/Info.plist)"
+      - run: ./scripts/test.sh
+      - run: bash scripts/test-regressions.sh
+      - name: Build and verify unsigned DMG
+        run: ./scripts/build.sh unsigned
+      - name: Publish version and verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(cat VERSION)"
+          dmg="SeekDesk-${version}-macOS-arm64-unsigned.dmg"
+          (cd dist && shasum -a 256 -c "$dmg.sha256")
+          codesign --verify --deep --strict dist/SeekDesk.app
+          gh release create "v$version" "dist/$dmg" "dist/$dmg.sha256" \
+            --target "$GITHUB_SHA" --title "SeekDesk V$version" \
+            --notes-file "docs/releases/v$version.md" --latest

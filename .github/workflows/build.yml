@@ -1,0 +1,12 @@
+name: macOS build
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/test.sh
+      - run: bash scripts/test-regressions.sh
+      - run: swift build --arch arm64

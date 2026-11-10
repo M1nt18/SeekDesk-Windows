@@ -15,18 +15,18 @@
   <img src="https://img.shields.io/badge/platform-macOS-161b22?logo=apple&amp;logoColor=white" alt="平台：macOS">
   <img src="https://img.shields.io/badge/architecture-Apple%20Silicon-007AFF" alt="架构：Apple Silicon">
   <img src="https://img.shields.io/badge/built%20with-Swift%20%2B%20SwiftUI-F05138?logo=swift&amp;logoColor=white" alt="使用 Swift 和 SwiftUI 构建">
-  <img src="https://img.shields.io/badge/status-in%20development-D69A22" alt="状态：开发中">
+  <img src="https://img.shields.io/badge/release-v1.0.0-2ea44f" alt="版本：V1.0.0">
 </p>
 
 <p align="center">
-  🌐 <a href="https://seekdesk.com/">官网（建设中）</a> ·
-  📦 <a href="https://github.com/cshaizhihao/SeekDesk">GitHub</a> ·
+  🌐 <a href="https://www.seekdesk.cc/">官网（建设中）</a> ·
+  📦 <a href="https://github.com/cshaizhihao/SeekDesk/releases/latest">下载 V1.0.0</a> ·
   💬 <a href="https://github.com/cshaizhihao/SeekDesk/issues">反馈问题</a> ·
   🐔 <a href="https://www.nodeseek.com/">NodeSeek 社区</a>
 </p>
 
 > [!IMPORTANT]
-> 🚧 **开发进行中**：本仓库目前公开项目介绍、Logo 与真实应用截图。源码、安装包和 Release 将在修复与验收完成后发布。下文介绍当前开发版的功能和实现方式，不代表正式版已经发行；源码计划采用 **GPL-3.0-only**。
+> 🎉 **V1.0.0 正式发布**：面向 Apple Silicon Mac，源码采用 **GPL-3.0-only**。前往 [Releases](https://github.com/cshaizhihao/SeekDesk/releases/latest) 获取安装包与 SHA-256 校验文件。首版未使用 Apple Developer ID 签名或 Apple 公证，首次打开方式见下方安装说明。
 
 <p align="center">
   <a href="#about">认识 SeekDesk</a> ·
@@ -37,7 +37,7 @@
   <a href="#comparison">网页版对比</a> ·
   <a href="#implementation">实现原理</a> ·
   <a href="#faq">常见问题</a> ·
-  <a href="#opensource">开源计划</a> ·
+  <a href="#opensource">开源与构建</a> ·
   <a href="#friends">友情链接</a>
 </p>
 
@@ -55,13 +55,13 @@
 
 **作者：NodeSeek @cshaizhihao** · GitHub：[@cshaizhihao](https://github.com/cshaizhihao)
 
-SeekDesk 独立开发，与 NodeSeek 官方没有隶属关系。登录通过应用内的官方页面完成，帖子、私信、等级与操作权限均沿用 [NodeSeek](https://www.nodeseek.com/) 的账号体系和社区规则。
+SeekDesk 是独立开发的第三方客户端，与 NodeSeek 官方没有隶属关系。帖子内容、账号权限和社区规则均以 [NodeSeek](https://www.nodeseek.com/) 为准。登录通过应用内的 NodeSeek 官方页面完成。
 
 <a id="screenshots"></a>
 
 ## 🖼️ 看看它的样子
 
-以下均为应用的真实运行截图。论坛内容、功能细节和布局会随开发进度变化。
+以下均为应用的真实运行截图。论坛内容会随时间变化，部分截图摄于 V1.0.0 发布前。
 
 ### 📖 多栏阅读，随时切换
 
@@ -98,7 +98,7 @@ SeekDesk 独立开发，与 NodeSeek 官方没有隶属关系。登录通过应�
 - **独立帖子标签**：点击打开、⌘ 点击后台打开、拖动排序、关闭当前标签和关闭全部；返回总览后保留已打开标签。
 - **自适应布局**：宽窗口显示多栏，窄窗口切换到阅读区；侧栏与列表宽度可调整，也可以收起帖子列表。
 - **楼层阅读**：显示头像、等级、角色、签名、楼层和分页；支持表格、图片放大，以及回复、引用和楼层定位。
-- **NQ / TQ 报告**：彩色终端报告与测评图片有专门的展示方式，缩放独立记忆；NQ 长报告按宽度展开，长度随内容自然延伸。长图与超长报告是当前重点回归场景。
+- **NQ / TQ 报告**：彩色终端报告与测评图片有专门的展示方式，缩放独立记忆；NQ 长报告按宽度展开，长度随内容自然延伸。长图按阅读宽度解码，超长终端报告保留完整内容并支持完整复制。
 - **搜索帖子与用户**：可选多个版块、保留最近搜索，也可粘贴 NodeSeek 帖子链接直接打开；历史搜索需要相应登录权限。
 
 ### 💬 写作与互动
@@ -107,6 +107,7 @@ SeekDesk 独立开发，与 NodeSeek 官方没有隶属关系。登录通过应�
 - **图片与表情**：本地选图、剪贴板图片上传、NodeSeek 官方表情，以及可分组导入的本机表情；支持调整普通图片的发送尺寸。
 - **帖子互动**：回复、引用、点赞、送鸡腿、点踩，以及编辑自己有权修改的主题和评论；操作权限由 NodeSeek 校验。
 - **个人空间**：查看主题、评论、粉丝和关注，编辑自己的个人 README 与帖子签名。
+- **按账号保存草稿**：回复、私信、新主题及图片尺寸设置保存在本机，重新登录同一账号后可恢复；切换账号时隔离草稿和阅读缓存。
 - **通知与私信**：查看 @我、主题回复和私信，跳转对应帖子或楼层；可按 UID 或个人主页链接打开私信会话。
 
 ### 🎨 外观与阅读设置
@@ -115,6 +116,7 @@ SeekDesk 独立开发，与 NodeSeek 官方没有隶属关系。登录通过应�
 - 六种品牌配色：原版钴蓝、海松青、蕨叶绿、鸢尾紫、琥珀橙、珊瑚红。
 - 帖子列表、正文、作者栏、侧栏版块和热榜均可调整阅读尺寸，并提供实时预览。
 - 从设置、扩展中心或个人页面返回原帖，继续阅读；动效遵循系统的“减少动态效果”设置。
+- “设置 → 关于”显示当前版本、构建号、项目链接、许可、致谢与第三方客户端声明。
 
 <a id="extensions"></a>
 
@@ -149,9 +151,19 @@ SeekDesk 独立开发，与 NodeSeek 官方没有隶属关系。登录通过应�
 
 ### 📦 获取应用与系统要求
 
-目前处于开发和审查阶段，**尚无公开安装包**。后续下载和版本说明将统一放在本仓库的 [Releases](https://github.com/cshaizhihao/SeekDesk/releases)；正式发布后，再补充对应版本的安装与校验说明。
+从 [GitHub Releases](https://github.com/cshaizhihao/SeekDesk/releases/latest) 下载 **SeekDesk-1.0.0-macOS-arm64-unsigned.dmg**。打开 DMG，将 SeekDesk 拖入 Applications，再从“应用程序”启动。
 
-首版面向 **Apple Silicon Mac**，项目设定的系统目标是 **macOS 14 及以上**。当前预览主要在 Apple Silicon 的新版 macOS 环境验证，旧系统兼容性仍在核对；Liquid Glass 效果需要 macOS 26 及以上。Intel Mac、Windows 和 Linux 暂未提供发行版。
+首版采用本地临时签名，**未使用 Apple Developer ID 签名，也未经过 Apple 公证**。如果 macOS 阻止首次打开，请在确认下载来源后，进入“系统设置 → 隐私与安全性”，为 SeekDesk 选择“仍要打开”。无需关闭整个系统的 Gatekeeper。
+
+下载同一 Release 中的 `.sha256` 文件后，可在两个文件所在目录校验：
+
+```sh
+shasum -a 256 -c SeekDesk-1.0.0-macOS-arm64-unsigned.dmg.sha256
+```
+
+后续更新从 Releases 下载新版，先退出 SeekDesk，再替换应用。“设置 → 通用”提供 GitHub 更新入口；首版尚未启用应用内自动更新。
+
+首版面向 **Apple Silicon Mac**，项目设定的系统目标是 **macOS 14 及以上**。本轮在 Apple Silicon / macOS 27.2 上完成验证，尚未在真实 macOS 14 设备上运行；Liquid Glass 效果需要 macOS 26 及以上。Intel Mac、Windows 和 Linux 暂未提供发行版。
 
 ### 🧭 第一次使用，可以这样开始
 
@@ -159,7 +171,7 @@ SeekDesk 独立开发，与 NodeSeek 官方没有隶属关系。登录通过应�
 2. 点击右上角账户图标，在应用内打开 **NodeSeek 官方登录页**。登录后的读取与互动仍受站点等级、阅读权限和账号状态限制。
 3. 点击“＋ 发帖”进入写作区，选择版块和阅读权限；在帖子底部回复，或用楼层上的入口引用内容。
 4. 上传图片时，在编辑器的图床设置中配置自己的 [NodeImage](https://www.nodeimage.com/) 密钥。密钥保存在 macOS 钥匙串；本机导入的自定义表情在插入时才上传。
-5. 在“设置 → 阅读”中调整字号、作者栏与报告缩放；在“设置 → 外观”中选择主题和 Logo 配色。
+5. 在“设置 → 阅读”中调整字号、作者栏与报告缩放；在“设置 → 外观”中选择主题和 Logo 配色；在“设置 → 关于”查看版本和项目链接。
 6. 在“扩展中心”添加需要的工具。关键词监控、自动签到等任务依赖客户端运行，退出应用后不会继续执行。
 
 ### ⌨️ 常用快捷键
@@ -210,9 +222,9 @@ SeekDesk 与 NodeSeek 网页版使用同一个社区和账号体系，重点在�
 | 本机存储 | UserDefaults；NodeImage 密钥使用 Security / Keychain |
 | 系统通知 | UserNotifications |
 | 构建与打包 | Swift Package Manager、Shell 构建脚本、macOS 应用与 DMG 打包 |
-| 应用更新 | Sparkle 2.10.1；正式发行需另行配置签名、公证和更新源 |
+| 应用更新 | 集成 Sparkle 2.10.1；V1.0.0 通过 GitHub Releases 手动更新，未启用生产更新源 |
 
-源码正式公开后，会同步补充可复现的构建步骤、测试说明和目录结构。当前仓库不包含可用于本地编译的完整工程。
+本仓库包含完整应用源码、界面资源、测试与打包脚本，构建方式见下方“开源与构建”。
 
 <a id="implementation"></a>
 
@@ -235,7 +247,7 @@ flowchart TB
     UI --> L["UserDefaults / Keychain / 内存缓存"]
 ```
 
-下面按实际使用流程展开。所述机制对应当前开发工程，发布前仍会继续调整和验证。
+下面按实际使用流程说明 V1.0.0 的实现。
 
 ### 🪟 原生窗口、标签与阅读位置
 
@@ -251,7 +263,7 @@ flowchart TB
 
 客户端通过页面中的账号信息判断登录状态。发帖、回复、私信和互动操作在论坛网页上下文中向站点发起同源请求，再将返回结果交给原生界面显示。站点仍负责最终校验登录、等级、阅读权限、操作额度与其他规则；遇到验证页时，需要按站点流程完成验证。
 
-异步操作使用 Swift Concurrency 管理。当前工程通过账号标识、会话修订值和请求标识核对返回结果，身份变化时使关联状态失效，减少旧请求干扰新会话的情况。这部分连同换号、退出和失败重试，仍是发布前的重要验收范围。
+异步操作使用 Swift Concurrency 管理。当前工程通过账号标识、会话修订值和请求标识核对返回结果，身份变化时使关联状态失效，减少旧请求干扰新会话的情况。换号、退出、草稿恢复和延迟请求返回已加入隔离回归测试。
 
 ### 📥 帖子怎样变成原生内容？
 
@@ -299,7 +311,7 @@ flowchart TB
 | TQ 尺寸 | 结合阅读区宽高计算默认显示大小，再应用用户选择的缩放比例 |
 | 图片内存 | 用 ImageIO 按阅读宽度和像素预算解码，头像、正文与大图分别使用有容量限制的内存缓存 |
 
-NQ 与 TQ 分别保存缩放偏好。“100%”指各自的默认阅读基准，便于切换不同测评帖子时继续使用习惯的大小。极长报告、特殊终端和超大图片仍需要覆盖更多真实样本。
+NQ 与 TQ 分别保存缩放偏好。“100%”指各自的默认阅读基准，便于切换不同测评帖子时继续使用习惯的大小。终端报告保留完整文本，长图在像素预算内按阅读宽度解码；超过内存预算时提供原图入口。
 
 ### 🔔 扩展背后的工作方式
 
@@ -355,18 +367,18 @@ NQ 与 TQ 分别保存缩放偏好。“100%”指各自的默认阅读基准，
 | --- | --- |
 | 登录会话 | 由应用使用的 WebKit 网站数据存储维护 |
 | 主题、字号、搜索历史、扩展偏好 | 主要保存在本机 UserDefaults |
-| 回复、私信与新帖草稿 | 当前开发代码按账号保存本机快照，包含相关图片尺寸配置；恢复和换号场景仍在回归 |
+| 回复、私信与新帖草稿 | 按已确认的账号 ID 保存本机快照，包含图片尺寸配置；同账号重启恢复，换号隔离 |
 | 近期帖子与图片 | 使用有限内存缓存辅助回访与展示；不构成完整离线资料库 |
 | NodeImage 密钥 | 保存到 macOS Keychain，上传时提供给 NodeImage 服务 |
 | 公开 RSS、热榜和汇率 | 由各自的独立网络会话读取，不将论坛登录凭据作为这些服务的认证信息 |
 | 发帖、回复、私信和论坛互动 | 发送给 NodeSeek，使用当前论坛会话并由站点校验 |
 | 图片上传与外部记录查询 | 分别访问 NodeImage、NS Seek 等对应服务 |
 
-UserDefaults 属于本机偏好存储，**不等同于加密保险箱**。上述会话、草稿与缓存机制仍在验收，后续发行说明会同步最终行为。
+UserDefaults 属于本机偏好存储，**不等同于加密保险箱**。请避免在草稿中长期保存密码、密钥等敏感内容。
 
 ### 🧱 工程怎样组织？
 
-以下是开发工程的模块划分，便于理解各部分职责。它说明当前实现结构，源码文件将在正式开源时公开。
+以下模块均已随 V1.0.0 公开，便于定位功能与参与维护。
 
 | 模块 | 主要职责 |
 | --- | --- |
@@ -377,9 +389,9 @@ UserDefaults 属于本机偏好存储，**不等同于加密保险箱**。上述
 | `MarkdownComposer`、`MarkdownPreviewDocument` | 编辑工具、Markdown 解析、预览和图片链接处理 |
 | `ForumTerminalView`、`ForumReportSizing` | 彩色报告展示与 NQ / TQ 尺寸规则 |
 | `DeskExtensions`、`AttendanceState`、`RemainingValue` | 扩展状态、关键词监控、签到与估价逻辑 |
-| `Tests/Session`、`scripts` | 回归检查、构建、签名及 DMG 打包 |
+| `Tests/Session`、`Tests/Regression`、`scripts` | 模型与脚本检查、真实会话状态回归、构建及 DMG 打包 |
 
-打包流程区分本地预览与正式发行：预览使用临时签名；正式流程要求 Developer ID 签名、Apple 公证、安装包校验，并配置 Sparkle 更新源与更新签名。当前公开仓库尚未提供安装包或生产更新源。
+打包脚本提供 `preview`（本机预览）、`unsigned`（未公证分发）与 `release`（Developer ID 签名及 Apple 公证）三种模式。V1.0.0 使用 `unsigned`，保留签名、公证和 Sparkle 更新源的配置能力供后续使用。
 
 <a id="faq"></a>
 
@@ -388,7 +400,7 @@ UserDefaults 属于本机偏好存储，**不等同于加密保险箱**。上述
 <details>
 <summary><strong>现在可以下载、编译或提交代码吗？</strong></summary>
 
-目前先公开介绍和素材，还没有安装包或完整源码，因此暂时不能从本仓库编译。可以先通过 Issues 提交建议或关注项目；源码正式发布后会补齐构建、测试和贡献说明。
+可以。安装包见 Releases，源码、资源、测试和脚本均在本仓库。欢迎提交 Issues 或 Pull Requests；提交前请运行下方两组测试并确认应用可以编译。
 
 </details>
 
@@ -429,28 +441,32 @@ UserDefaults 属于本机偏好存储，**不等同于加密保险箱**。上述
 
 <a id="opensource"></a>
 
-## 📜 开源与授权
+## 📜 开源与构建
 
-- **源码计划许可：GPL-3.0-only**。本地工程已选择这一许可；正式公开时会一并提交源码、`LICENSE` 与构建说明。许可全文可查阅 [GNU GPL v3](https://www.gnu.org/licenses/gpl-3.0.html)。
-- **当前公开范围：项目说明、Logo 与应用截图**。源码、安装包和正式版本尚未发布；本仓库当前不是完整的源码发行包。
-- **图片与第三方内容**：Logo、品牌素材、截图中的论坛内容及合作伙伴标识不因源码的许可计划而自动获得相同授权。相关权利归各自权利人，另行使用时请遵循对应授权。
-- **第三方组件**：应用集成 [Sparkle](https://sparkle-project.org/)，使用其独立许可；源码发布时会保留相应第三方许可说明。
+源码采用 **GPL-3.0-only**，见 [LICENSE](LICENSE)。Sparkle 许可、社区服务和素材说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。品牌标识、合作伙伴 Logo 与截图中的论坛内容归相应权利人所有。
 
-## 🗺️ 开发进度与参与方式
+使用 Mac 与支持本项目语法的现代 Swift 工具链构建，建议安装当前稳定版 Xcode。包清单最低为 Swift tools 5.10；Liquid Glass 分支需要支持 macOS 26 SDK 的工具链编译，运行时对旧系统提供材质回退。
 
-| 阶段 | 当前状态 |
-| --- | --- |
-| 📖 核心功能开发 | 已形成可运行的本地开发版，覆盖上文展示的阅读、写作与扩展功能 |
-| 🖼️ 项目介绍 | 本仓库已公开 README、Logo、真实截图与相关说明 |
-| 🧪 修复与验收 | 正在推进会话、草稿、异步请求、消息状态、报告和兼容性等回归 |
-| 🔓 源码公开 | 待修复与验收完成后提交源码、GPL 许可与构建说明 |
-| 📦 安装包发行 | 待正式签名、公证、打包与更新流程验证后发布 |
+```sh
+git clone https://github.com/cshaizhihao/SeekDesk.git
+cd SeekDesk
+swift build --arch arm64
+./scripts/test.sh
+bash scripts/test-regressions.sh
+./scripts/build.sh unsigned
+```
 
-具体发布时间以仓库后续公告为准。功能实现、单项测试通过和正式发行是不同阶段，开发版仍需要更多真实场景验证。
+版本由 `VERSION` 与 `BUILD_NUMBER` 统一提供，产物写入 `dist/`。Sparkle 固定为 2.10.1，SwiftPM 按声明的 SHA-256 校验依赖下载。测试使用本机隔离存储和模拟返回，不会向论坛发送测试帖子或私信。
 
-欢迎通过 [GitHub Issues](https://github.com/cshaizhihao/SeekDesk/issues) 提交问题或建议。报告问题时，请尽量提供 macOS 版本、设备架构、应用版本、复现步骤，以及便于定位的截图或公开帖子链接。请隐藏私信、Cookie、密钥和其他个人信息。
+如需自行完成 Developer ID 签名、公证或配置 Sparkle 更新源，请参阅 [发行说明](docs/RELEASING.md)。
 
-官网地址为 **[seekdesk.com](https://seekdesk.com/)**，目前正在建设。NodeSeek 项目介绍帖将在发布后补充。
+## 🧪 V1.0.0 质量与反馈
+
+本轮已修复账号草稿隔离、退出后的缓存失效、旧异步请求写回、草稿恢复、私信未读聚合、长图清晰度、Markdown 图片解析、报告截断和资料缓存刷新问题，并补充了对应回归。公开版本的检查范围与限制见 [版本说明](CHANGELOG.md)。
+
+欢迎通过 [GitHub Issues](https://github.com/cshaizhihao/SeekDesk/issues) 提交问题或建议。请提供 macOS 版本、设备架构、应用版本、复现步骤及必要截图；隐藏私信、Cookie 和密钥等个人信息。也欢迎通过 Pull Requests 参与改进。
+
+官网：**[www.seekdesk.cc](https://www.seekdesk.cc/)**（建设中）。安装包和发行状态以 GitHub Releases 为准。
 
 ## 🙌 社区项目与致谢
 
