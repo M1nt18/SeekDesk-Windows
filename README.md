@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  🌐 <a href="https://www.seekdesk.cc/">官网（建设中）</a> ·
+  🌐 <a href="https://www.seekdesk.cc/">官网</a> ·
   📦 <a href="https://github.com/cshaizhihao/SeekDesk/releases/latest">下载 V1.0.0</a> ·
   💬 <a href="https://github.com/cshaizhihao/SeekDesk/issues">反馈问题</a> ·
   🐔 <a href="https://www.nodeseek.com/">NodeSeek 社区</a>
