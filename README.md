@@ -21,6 +21,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/M1nt18/SeekDesk-Windows/releases/download/v0.1.0/SeekDesk-Windows-0.1.0-x64-Setup.exe">下载 Windows 安装包</a> ·
   <a href="https://github.com/M1nt18/SeekDesk-Windows">GitHub 项目</a> ·
   <a href="https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.0">0.1.0 版本说明</a> ·
   <a href="https://github.com/M1nt18/SeekDesk-Windows/issues">问题反馈</a> ·
@@ -41,7 +42,7 @@
 </p>
 
 > [!IMPORTANT]
-> **0.1.0 当前以源码形式提供。** 本次源码修订尚未生成对应的 Windows 安装包，请按下文编译运行。历史安装产物不代表当前源码的功能状态。
+> **0.1.0 提供 Windows x64 安装包、免安装压缩包及配套源码。** 从 [Releases](https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.0) 下载，并使用同页 `SHA256SUMS.txt` 校验文件。当前安装包未进行 Windows 代码签名。
 
 <a id="about"></a>
 
@@ -209,6 +210,14 @@ Windows 移植维护：[@M1nt18](https://github.com/M1nt18)。原版 SeekDesk �
 <a id="getting-started"></a>
 
 ## 开始使用
+
+### 下载安装
+
+1. 下载 [SeekDesk-Windows-0.1.0-x64-Setup.exe](https://github.com/M1nt18/SeekDesk-Windows/releases/download/v0.1.0/SeekDesk-Windows-0.1.0-x64-Setup.exe)，运行后选择安装位置。无需另外安装 Node.js。
+2. 或下载 [免安装压缩包](https://github.com/M1nt18/SeekDesk-Windows/releases/download/v0.1.0/SeekDesk-Windows-0.1.0-x64-portable.zip)，完整解压到一个文件夹，运行其中的 `SeekDesk Windows.exe`；请保留旁边的资源和依赖文件。
+3. 首版没有 Windows 代码签名，首次运行可能显示“未知发布者”。请从本仓库下载，并可用 `certutil -hashfile 文件名 SHA256` 核对发布页校验值。
+
+发布文件经过包内容检查：不携带维护者的论坛登录、Cookie、草稿、API Key、测试目录或本机调试日志。首次运行会在使用者自己的系统中建立独立配置。
 
 ### 系统与源码运行
 
@@ -378,7 +387,7 @@ npm start
 npm run dist
 ```
 
-该命令会构建并打包，输出到 `windows/release/`；它与普通的 `npm run build` 分开。本次 0.1.0 源码发布没有执行这个步骤，也不包含当前源码对应的已签名安装程序。
+该命令会构建并打包，输出到 `windows/release/`；它与普通的 `npm run build` 分开。维护者发布时显式关闭自动上传，在检查安装载荷和隐私内容后上传审核过的文件；当前安装程序未签名。
 
 </details>
 
@@ -406,7 +415,7 @@ npm run test:public
 
 当前验证包括 **80 项单元与契约测试**，以及 Electron 的界面、会话、阅读器和回复刷新回归。论坛写操作和 NodeImage 上传使用独立测试替身，不向真实论坛发布测试内容；公开读取和计算器另有实际网络验证。
 
-GitHub Actions 在 Windows 环境执行依赖安装、单元测试和源码编译。安装包生成与上传保持独立，本次不会由首次推送自动触发 macOS 或 Windows 打包。
+GitHub Actions 在 Windows 环境执行依赖安装、单元测试和源码编译。安装包生成、内容检查与上传由维护者单独执行，不会由首次推送自动触发旧 macOS 发布流程。
 
 真实账号登录、人工验证、受限内容及线上写权限仍需在自己的官方会话下验收。详细范围见 [当前验收记录](windows/docs/VERIFICATION-CURRENT.md) 与 [功能对照](windows/docs/FEATURE-PARITY.md)。
 
@@ -480,7 +489,7 @@ Windows 的版本以 `windows/package.json` 与 `v0.1.0` 标签为准。根目�
 <details>
 <summary><strong>是否支持离线、云同步或自动更新？</strong></summary>
 
-当前提供本机草稿、偏好与有限阅读缓存，没有完整离线论坛、跨设备同步或应用内自动安装更新。0.1.0 以源码提供，更新源码后重新构建运行。
+当前提供本机草稿、偏好与有限阅读缓存，没有完整离线论坛、跨设备同步或应用内自动安装更新。可从本仓库 Releases 下载新版安装包，也可以更新源码后重新构建运行。
 
 </details>
 

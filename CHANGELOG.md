@@ -4,7 +4,7 @@ Windows 版本独立于原 macOS 应用。原版记录保留于 [CHANGELOG.macOS
 
 ## 0.1.0 · 2026-11-12
 
-首次发布 Windows 源码版，基于上游 SeekDesk V1.0.0 / `84e99c6cb24e66c5bbccb6382380ae72b9924d4b`，使用 Electron、React、TypeScript 实现。此版本不附带当前源码对应的 Windows 安装程序。
+首次发布 Windows 版，基于上游 SeekDesk V1.0.0 / `84e99c6cb24e66c5bbccb6382380ae72b9924d4b`，使用 Electron、React、TypeScript 实现。提供 x64 NSIS 安装程序、免安装压缩包、对应源码与 SHA-256 校验文件。
 
 ### 工作区与阅读
 
@@ -37,3 +37,5 @@ Windows 版本独立于原 macOS 应用。原版记录保留于 [CHANGELOG.macOS
 - 保留 GPL-3.0-only、上游署名和第三方许可。
 - GitHub 仅运行 Windows 源码检查；原 macOS 自动打包发布工作流移至参考存档。
 - 应用内更新尚未配置；“GitHub 项目”和“检查更新”按钮保持暂时移除状态。
+- 打包采用白名单、排除源码映射与本机测试数据、禁止隐式自动上传；实际包内容和全新配置启动已检查。
+- 安装器载荷经静态提取并与实测程序全量对比，不执行会改动维护者现有安装的静默安装测试。当前安装包未签名。

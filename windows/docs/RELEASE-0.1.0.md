@@ -1,8 +1,17 @@
 # SeekDesk Windows 0.1.0
 
-首个 Windows 源码版本，基于 SeekDesk V1.0.0 移植，使用 Electron + React + TypeScript。保留原版导航与多栏阅读组织，支持发帖、完整回复、个人空间、通知私信、Markdown、图床与表情、按账号草稿、ANSI/NQ/TQ 报告和八项内置扩展。
+首个 Windows 版本，基于 SeekDesk V1.0.0 移植，使用 Electron + React + TypeScript。保留原版导航与多栏阅读组织，支持发帖、完整回复、个人空间、通知私信、Markdown、图床与表情、按账号草稿、ANSI/NQ/TQ 报告和八项内置扩展。
 
-本次发布源码，**不附带这次修订对应的 Windows 安装包**。
+## 下载应用
+
+- **安装版**：`SeekDesk-Windows-0.1.0-x64-Setup.exe`，运行并选择安装位置。
+- **免安装版**：`SeekDesk-Windows-0.1.0-x64-portable.zip`，完整解压后运行 `SeekDesk Windows.exe`。
+- **配套源码**：`SeekDesk-Windows-0.1.0-source.zip`，从此次构建提交的已跟踪文件生成，用于复现本次打包。
+- **校验文件**：`SHA256SUMS.txt`。可用 `certutil -hashfile 文件名 SHA256` 核对。
+
+Windows 10 / 11 x64，无需另外安装 Node.js。当前首版未做 Windows 代码签名，可能显示未知发布者。
+
+安装载荷、实际 ASAR、依赖与全新配置启动均已检查。不包含维护者的登录会话、Cookie、草稿、API Key、测试目录、调试日志或本机源码映射。
 
 ## 从源码运行
 

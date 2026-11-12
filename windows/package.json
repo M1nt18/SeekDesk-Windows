@@ -59,8 +59,15 @@
       "dist-electron/**",
       "vendor/**",
       "build/icon.ico",
-      "package.json"
+      "package.json",
+      "!**/*.map",
+      "!**/*.tsbuildinfo",
+      "!**/.env",
+      "!**/.env.*",
+      "!**/.test-data/**",
+      "!**/verification/**"
     ],
+    "publish": null,
     "extraFiles": [
       {
         "from": "../LICENSE",

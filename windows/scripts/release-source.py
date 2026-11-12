@@ -1,25 +1,25 @@
-"""Bundle corresponding source; never include installed apps or browser profiles."""
+"""Archive committed source only; untracked profiles, secrets and build logs never enter it."""
 from pathlib import Path
-import hashlib
-import os
-import zipfile
+import argparse
+import json
+import subprocess
 
 project = Path(__file__).resolve().parent.parent
 repository = project.parent
-release = project / 'release'
-release.mkdir(exist_ok=True)
-archive = release / 'SeekDesk-Windows-0.1.0-source.zip'
-excluded = {'.git', 'node_modules', '.test-data', 'release', 'dist', 'dist-electron', '__pycache__'}
-with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
-    for directory, subdirectories, filenames in os.walk(repository):
-        subdirectories[:] = [name for name in subdirectories if name not in excluded]
-        for filename in filenames:
-            source = Path(directory) / filename
-            relative = source.relative_to(repository)
-            bundle.write(source, str(Path('SeekDesk-Windows') / relative))
-hashes = []
-for artifact in [release / 'SeekDesk-Windows-0.1.0-x64-Setup.exe', archive]:
-    digest = hashlib.file_digest(artifact.open('rb'), 'sha256').hexdigest()
-    hashes.append(f'{digest}  {artifact.name}')
-    print(f'{artifact.name}: {artifact.stat().st_size:,} bytes')
-(release / 'SHA256SUMS.txt').write_text('\n'.join(hashes) + '\n', encoding='utf-8')
+parser = argparse.ArgumentParser()
+parser.add_argument('--output', type=Path, default=project / 'release')
+args = parser.parse_args()
+release = args.output.resolve()
+if not release.is_relative_to(project):
+    raise SystemExit('Source output must remain inside the Windows project directory')
+version = json.loads((project / 'package.json').read_text(encoding='utf-8'))['version']
+dirty = subprocess.check_output(['git', 'status', '--porcelain', '--untracked-files=no'], cwd=repository, text=True)
+if dirty.strip():
+    raise SystemExit('Commit source changes before creating the corresponding source archive')
+release.mkdir(parents=True, exist_ok=True)
+archive = release / f'SeekDesk-Windows-{version}-source.zip'
+subprocess.run([
+    'git', 'archive', '--format=zip', f'--prefix=SeekDesk-Windows-{version}/',
+    '--output', str(archive), 'HEAD',
+], cwd=repository, check=True)
+print(f'{archive.name}: {archive.stat().st_size:,} bytes')

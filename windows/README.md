@@ -4,7 +4,7 @@
 
 详细功能、截图和首次使用指南见 [仓库首页 README](../README.md)。
 
-**0.1.0 当前以源码提供，没有对应安装包。** 首次获取或更新源码后请先执行 `npm ci` 和 `npm run build`；已有编译结果时可双击“启动调试版.cmd”运行。
+已打包的安装版和免安装版见 [v0.1.0 发布页](https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.0)。开发者首次获取或更新源码后执行 `npm ci` 和 `npm run build`；已有编译结果时可双击“启动调试版.cmd”运行。
 
 ## 当前功能
 
@@ -59,6 +59,6 @@ npm run test:reply-refresh
 
 报告与截图写入 `verification/`。真实账号的登录、权限和发帖结果仍需用户在官方会话下验收；测试没有使用用户已有的 Cookie，也没有向真实论坛发送测试帖子、回复、私信、互动或签到。
 
-本轮用户测试阶段不执行 `dist`、`pack` 或源码归档脚本。旧安装包 SHA-256：`014fbe631f8985f3ede86ce47089136ca3b1debb1231aa1e6fb913ca582acdcc`。
+发布包使用明确的文件白名单，不包含测试配置、运行日志或源码映射。`scripts/audit-release.cjs` 检查实际 ASAR/依赖和隐私内容；`scripts/check-installer.cjs` 静态解包安装器并核对载荷；`scripts/release-smoke.cjs` 用全新隔离配置运行真正打包的程序。源码归档通过 `git archive` 仅包含已提交文件。
 
 项目按 GPL-3.0-only 提供；上游作者、社区服务、品牌资源及依赖声明见 [NOTICE.md](NOTICE.md) 和父目录 LICENSE。
