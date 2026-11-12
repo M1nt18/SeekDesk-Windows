@@ -2,6 +2,13 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { SeekDeskAPI, AccountState, OfficialViewState } from '../shared/types';
 
 const api: SeekDeskAPI = {
+  getDesktopPreferences: () => ipcRenderer.invoke('app:desktop-preferences'),
+  setCloseBehavior: behavior => ipcRenderer.invoke('app:close-behavior',behavior),
+  getUpdateState: () => ipcRenderer.invoke('app:update-state'),
+  downloadUpdate: () => ipcRenderer.invoke('app:update-download'),
+  cancelUpdate: () => ipcRenderer.invoke('app:update-cancel'),
+  installUpdate: () => ipcRenderer.invoke('app:update-install'),
+  onUpdateChange: callback => {const handler=(_event:Electron.IpcRendererEvent,state:Parameters<typeof callback>[0])=>callback(state);ipcRenderer.on('app:update-change',handler);return()=>ipcRenderer.removeListener('app:update-change',handler);},
   openCalculator: () => ipcRenderer.invoke('tool:calculator'),
   queryForum: request => ipcRenderer.invoke('parity:query',request),
   writeForum: (request,owner) => ipcRenderer.invoke('parity:write',request,owner),
@@ -29,7 +36,7 @@ const api: SeekDeskAPI = {
   toggleBossKey: () => ipcRenderer.invoke('extensions:boss-toggle'),
   saveSearchHistory: value => ipcRenderer.invoke('parity:history',value),
   copyText: text => ipcRenderer.invoke('app:clipboard',text),
-  checkUpdates: () => ipcRenderer.invoke('app:updates'),
+  checkUpdates: () => ipcRenderer.invoke('app:update-check'),
   onBossKey: callback => {const handler=(_event:Electron.IpcRendererEvent,visible:boolean)=>callback(visible);ipcRenderer.on('extensions:boss',handler);return ()=>ipcRenderer.removeListener('extensions:boss',handler);},
   onExtensionsChange: callback => {const handler=(_event:Electron.IpcRendererEvent,state:Parameters<typeof callback>[0])=>callback(state);ipcRenderer.on('extensions:change',handler);return ()=>ipcRenderer.removeListener('extensions:change',handler);},
   onOpenPost: callback => {const handler=(_event:Electron.IpcRendererEvent,post:Parameters<typeof callback>[0])=>callback(post);ipcRenderer.on('app:open-post',handler);return ()=>ipcRenderer.removeListener('app:open-post',handler);},

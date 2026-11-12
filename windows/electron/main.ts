@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, ipcMain, session, shell, clipboard, Notification, globalShortcut, nativeImage, type Session, type IpcMainInvokeEvent, type WebContents } from 'electron';
+import { app, BrowserWindow, WebContentsView, ipcMain, session, shell, clipboard, Notification, globalShortcut, nativeImage, dialog, screen, Tray, Menu, type Session, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -7,6 +7,8 @@ import { FORUM_ORIGIN, RSS_URL, isOfficialUrl, normalizePostUrl, listingUrl, par
 import {createActionScript,validateActionRequest} from './interactions';
 import { Store, validateSettings, validateWorkspace, validateBlockedUsers } from './store';
 import {UserscriptHost} from './userscripts';
+import {DesktopWindowController} from './desktop-window';
+import {UpdaterService} from './updater';
 import {ParityStore,validateAppearance,validateHistory} from './parity-store';
 import {MediaService} from './media';
 import {ExtensionsService} from './extensions';
@@ -33,6 +35,8 @@ let forumSession: Session;
 let publicSession: Session;
 let store: Store;
 let userscriptHost: UserscriptHost;
+let desktopWindow:DesktopWindowController;
+let updater:UpdaterService;
 let buildNumber='源码调试';
 let features:ParityStore;
 let media:MediaService;
@@ -413,6 +417,19 @@ async function loadAvatar(input: unknown): Promise<string | null> {
 function registerIPC() {
   const handle = (name: string, fn: (...args: any[]) => unknown) => ipcMain.handle(name, async (event,...args) => {assertLocal(event); return fn(...args);});
   const assertOwner=(owner:unknown)=>{if(account.status!=='signed-in'||!Number.isSafeInteger(owner)||owner!==account.id)throw new Error('账号已变化，请确认当前账号后重新操作');};
+  handle('app:desktop-preferences',()=>desktopWindow.getPreferences());
+  handle('app:close-behavior',(behavior)=>desktopWindow.setCloseBehavior(behavior));
+  handle('app:update-state',()=>updater.getState());
+  handle('app:update-check',()=>updater.check());
+  handle('app:update-download',()=>updater.download());
+  handle('app:update-cancel',()=>updater.cancel());
+  handle('app:update-install',async()=>{
+    if(updater.getState().status!=='downloaded'||!mainWindow)return updater.getState();
+    const choice=await dialog.showMessageBox(mainWindow,{type:'question',title:'安装 SeekDesk 更新',message:'现在重启并安装更新？',detail:'请先保存正在编辑的内容。安装完成后会重新打开客户端。',buttons:['立即安装','取消'],defaultId:1,cancelId:1,noLink:true});
+    if(choice.response!==0)return updater.getState();
+    await Promise.all([store.save(),features.save(),desktopWindow.flush()]);
+    return updater.install();
+  });
   handle('tool:calculator',openCalculator);
   handle('parity:query',queryForum);
   handle('parity:write',(request,owner)=>{assertOwner(owner);return writeForum(request);});
@@ -440,7 +457,7 @@ function registerIPC() {
   handle('extensions:calculate',(input)=>extensions.calculate(input));
   handle('extensions:boss-toggle',()=>toggleBoss());
   handle('app:clipboard',(value:unknown)=>{if(typeof value!=='string'||value.length>2000000)throw new Error('复制文本无效');return clipboard.writeText(value);});
-  handle('app:updates',async()=>{throw new Error('尚未配置 Windows 项目的更新地址');});
+  handle('app:updates',()=>updater.check());
   handle('app:bootstrap', () => ({settings:store.settings,workspace:store.settings.restoreTabs ? store.workspace : {tabs:[],activeId:null,overviewOpen:store.workspace.overviewOpen ?? true},account,version:app.getVersion(),buildNumber,official:officialState,blockedUsers:store.blockedUsers}));
   handle('forum:list', (request: ListingRequest) => listPosts(request || {}));
   handle('forum:thread', readThread);
@@ -495,21 +512,22 @@ function registerIPC() {
   ipcMain.on('app:window',(event,action) => {assertLocal(event); if (action==='close') mainWindow?.close(); else if(action==='minimize') mainWindow?.minimize(); else if(action==='maximize' && mainWindow) {if(mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize();}});
 }
 function createMain() {
-  mainWindow = new BrowserWindow({width:1440,height:920,minWidth:960,minHeight:680,show:false,frame:false,backgroundColor:'#f6f7f9',title:'SeekDesk Windows',icon:path.join(__dirname,'../../build/icon.ico'),webPreferences:{preload:path.join(__dirname,'preload.js'),sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
+  mainWindow = new BrowserWindow({...desktopWindow.createOptions(),show:false,frame:false,backgroundColor:'#f6f7f9',title:'SeekDesk Windows',icon:path.join(__dirname,'../../build/icon.ico'),webPreferences:{preload:path.join(__dirname,'preload.js'),sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
+  desktopWindow.attach(mainWindow);
   mainWindow.setMenuBarVisibility(false);
   applyBrandIcon();
   mainWindow.webContents.setWindowOpenHandler(() => ({action:'deny'}));
   mainWindow.webContents.on('will-navigate',(event,url) => {if(url !== rendererURL) event.preventDefault();});
   mainWindow.webContents.on('will-redirect',event => event.preventDefault());
   mainWindow.webContents.on('did-start-loading',closeOfficial);
-  mainWindow.on('ready-to-show',() => mainWindow?.show());
-  mainWindow.on('close',()=>{destroyOfficial();destroyCalculator();});
+  mainWindow.on('ready-to-show',() => {desktopWindow.restore();mainWindow?.show();});
+  mainWindow.on('close',event=>{if(!event.defaultPrevented){destroyOfficial();destroyCalculator();}});
   mainWindow.on('closed',() => {mainWindow=null;app.quit();});
   void mainWindow.loadURL(rendererURL);
 }
 if (!app.requestSingleInstanceLock() && !testing) app.quit();
 else {
-  app.on('second-instance',() => {mainWindow?.show(); if(mainWindow?.isMinimized()) mainWindow.restore();mainWindow?.focus();});
+  app.on('second-instance',() => desktopWindow?.show());
   app.whenReady().then(async () => {
     app.setAppUserModelId('cc.seekdesk.windows');
     try{const built=await fs.stat(rendererFile);buildNumber=built.mtime.toISOString().replace(/[-:TZ.]/g,'').slice(0,14);}catch{}
@@ -530,6 +548,9 @@ else {
     features=new ParityStore(app.getPath('userData'));
     media=new MediaService(app.getPath('userData'),()=>mainWindow);
     await Promise.all([features.load(),media.load()]);
+    desktopWindow=await DesktopWindowController.load({directory:app.getPath('userData'),app,screen,dialog,createTray:icon=>new Tray(icon),createMenu:template=>Menu.buildFromTemplate(template),trayIcon:path.join(__dirname,'../../build/icon.ico'),onFinalQuit:async()=>{await Promise.all([store.save(),features.save()]);}});
+    const installed=app.isPackaged&&process.platform==='win32'&&!process.env.PORTABLE_EXECUTABLE_DIR&&await fs.stat(path.join(path.dirname(process.execPath),'Uninstall SeekDesk Windows.exe')).then(value=>value.isFile()).catch(()=>false);
+    updater=new UpdaterService({currentVersion:app.getVersion(),isPackaged:app.isPackaged,isInstalled:installed,userDataDirectory:app.getPath('userData'),onChange:state=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('app:update-change',state);}});
     extensions=new ExtensionsService(features.extensions,{
       getAccount:()=>account,
       readAttendance:async()=>{const result=await queryForum({kind:'attendance-status'});return result.attendance||{kind:'failed'};},
@@ -543,7 +564,8 @@ else {
     userscriptHost.registerIPC(ipcMain);
     registerIPC();
     createMain();
+    if(!testing)void updater.initialize().catch(()=>{});
   }).catch(error => {console.error('SeekDesk startup failed:',error);app.quit();});
 }
 app.on('window-all-closed',() => app.quit());
-app.on('will-quit',()=>{extensions?.dispose();globalShortcut.unregisterAll();});
+app.on('will-quit',()=>{extensions?.dispose();updater?.dispose();desktopWindow?.dispose();globalShortcut.unregisterAll();});

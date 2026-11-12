@@ -44,6 +44,9 @@
 > [!IMPORTANT]
 > **0.1.0 提供 Windows x64 安装包、免安装压缩包及配套源码。** 从 [Releases](https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.0) 下载，并使用同页 `SHA256SUMS.txt` 校验文件。当前安装包未进行 Windows 代码签名。
 
+> [!NOTE]
+> **主分支包含尚未发布的改进**：关闭询问与托盘、窗口大小记忆、快捷方式安装选项、在线更新及缓存清理、HOT 热评和回复编辑器关闭按钮。已发布的 0.1.0 下载文件保持不变；这些改进可从源码构建体验，详情见 [未发布修改](windows/docs/DESKTOP-UNRELEASED.md)。
+
 <a id="about"></a>
 
 ## 认识 SeekDesk Windows
@@ -251,7 +254,7 @@ npm start
 
 账号等级、受限版块、历史搜索、发帖频率和互动额度仍由 NodeSeek 校验。遇到登录失效或站点验证时，可回到官方页面处理。
 
-**0.1.0 尚未启用应用内更新。** “GitHub 项目”和“检查更新”按钮目前暂时移除；后续配置本项目仓库后再接入，不向原版项目查询 Windows 更新。
+**已发布的 0.1.0 尚未启用应用内更新。** 主分支已加入面向本仓库的更新检查、下载、校验和安装流程，待下一次发布配套安装包与 `latest.yml` 后使用；当前下载文件不替换。
 
 <a id="shortcuts"></a>
 

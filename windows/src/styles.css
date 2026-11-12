@@ -562,6 +562,11 @@ kbd { font-family: inherit; font-size: max(12px, .75rem); color: var(--muted); b
 .comment-signature p { margin: 0; }
 .comment-signature p + p { margin-top: .6em; }
 .comment-signature + .comment-actions { padding-top: 3px; }
+.comment-hot-badge { display:inline-flex; align-items:center; justify-content:center; align-self:flex-start; margin-left:auto; min-width:32px; padding:5px 4px 10px; background:#e74734; color:#fff; font-size:max(12px,.7rem); font-weight:700; line-height:1; clip-path:polygon(0 0,100% 0,100% 100%,50% 82%,0 100%); }
+.comment-hot-badge + .floor { margin-left:0; }
+.reply-heading-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin-left:auto; }
+.reply-heading-actions>small { color:var(--muted); font-size:max(12px,.7rem); }
+.reply-heading-actions .icon-button { min-width:30px; min-height:30px; color:var(--secondary); }
 .thread-footer { justify-content: flex-end; }
 .reader-content a,
 .reader-content a:visited,

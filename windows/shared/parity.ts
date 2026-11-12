@@ -79,5 +79,5 @@ export interface ParityAPI {
  onExtensionsChange(callback:(state:ExtensionsState)=>void):()=>void;
  onOpenPost(callback:(post:Post)=>void):()=>void;
  saveSearchHistory(history:SearchHistory[]):Promise<void>;
- copyText(text:string):Promise<void>;checkUpdates():Promise<{version:string;url:string;newer:boolean}>;
+ copyText(text:string):Promise<void>;
 }

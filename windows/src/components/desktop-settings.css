@@ -1,0 +1,23 @@
+.desktop-close-settings .setting-row { gap: 18px; }
+.desktop-close-settings select { min-width: 155px; max-width: 100%; }
+.desktop-settings-note, .desktop-update-description, .desktop-update-heading p, .desktop-update-progress > div { font-size: max(12px, .75rem); line-height: 1.8; }
+.desktop-settings-note { margin: 8px 0 0; color: var(--muted); }
+.desktop-settings-error { color: var(--danger, #d95360); font-size: max(12px, .78rem); line-height: 1.8; margin: 12px 0 0; }
+.desktop-update-card { border: 1px solid var(--line); background: var(--app); border-radius: 8px; padding: 18px; margin: 22px 0; }
+.desktop-update-heading { display: flex; align-items: flex-start; gap: 10px; }
+.desktop-update-heading > svg { margin-top: 2px; color: var(--accent); flex-shrink: 0; }
+.desktop-update-heading h2 { margin: 0 0 4px; }
+.desktop-update-heading p { color: var(--muted); margin: 0; }
+.desktop-update-description { margin: 13px 0; color: var(--secondary); }
+.desktop-update-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.desktop-update-actions button { font-size: max(12px, .78rem); min-height: 33px; }
+.desktop-update-progress { margin: 15px 0; }
+.desktop-update-progress progress { display: block; width: 100%; height: 8px; border: 0; border-radius: 4px; overflow: hidden; background: var(--line); accent-color: var(--accent); }
+.desktop-update-progress progress::-webkit-progress-bar { background: var(--line); border-radius: 4px; }
+.desktop-update-progress progress::-webkit-progress-value { background: var(--accent); border-radius: 4px; }
+.desktop-update-progress > div { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 5px; color: var(--secondary); }
+@media(max-width: 800px) {
+  .desktop-close-settings .setting-row { flex-wrap: wrap; }
+  .desktop-close-settings select { width: 100%; }
+  .desktop-update-card { padding: 14px; }
+}

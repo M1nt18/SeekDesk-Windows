@@ -144,6 +144,51 @@ test('thread metadata exposes real author IDs, levels, roles, signatures and rea
   }finally{page.window.close();}
 });
 
+// Official public post-893437-1 exposes .comments > li.content-item for hot
+// floors 42/13/43, with .nsk-content-meta-info .floor-link-wrapper > .hot-badge.
+// Its single postData.comments array contains hot/pined/floorIndex/commentId.
+function realShapedFloor(floor:number,options:{hot?:boolean;body?:string;chicken?:number;likes?:number}={}) {
+  return `<li data-comment-id="${12000000+floor}" id="${floor}" class="content-item"><div class="nsk-content-meta-info"><div class="avatar-wrapper"><a href="/space/77"><img src="/avatar/77.png" class="avatar-normal"></a></div><div><div class="author-info"><a href="/space/77" class="author-name">Fixture Reader</a></div><div class="content-info"><span class="date-created"><time datetime="2026-11-11T00:00:00Z">Now</time></span></div></div><div class="floor-link-wrapper">${options.hot?'<div class="hot-badge"></div>':''}<a href="#${floor}" class="floor-link">#${floor}</a></div></div><article class="post-content"><p>${options.body||'Reply '+floor}</p></article><div class="comment-menu"><div title="点赞" class="menu-item"><span>${options.likes??0}</span></div><div title="加鸡腿" class="menu-item"><span>${options.chicken??0}</span></div></div></li>`;
+}
+const rootFixture='<div class="nsk-post-wrapper"><h1><a class="post-title-link">Thread</a></h1><div class="content-item" id="0"><div class="nsk-content-meta-info"><a class="author-name" href="/space/42">Owner</a></div><article class="post-content"><p>Root body</p></article></div></div>';
+
+test('official hot floors outside the current page retain true floors, chicken counts and original page links without duplicate copies',()=>{
+  const page=dom(`<div id="nsk-body-left">${rootFixture}<ul class="comments">${realShapedFloor(42,{hot:true,chicken:8,likes:99,body:'Hot off-page reply'})}${realShapedFloor(1,{chicken:2})}${realShapedFloor(42,{body:'Normal duplicate'})}</ul><div class="pagination"><a href="/post-123-2">2</a></div></div>`,'https://www.nodeseek.com/post-123-1');
+  (page.window as any).__config__={commmentPerPage:10,postData:{postId:123,comments:[{floorIndex:0,hot:true},{floorIndex:42,commentId:12000042,hot:true,pined:false,likeCount:8,upvoteCount:99},{floorIndex:1,hot:false,likeCount:2}]}};
+  try{
+    const result=page.window.eval(extractThreadScript);
+    assert.deepEqual(Array.from(result.comments,(comment:any)=>comment.id),['0','42','1']);
+    const hot=result.comments[1];assert.equal(hot.floor,'#42');assert.equal(hot.authorId,77);assert.equal(hot.chicken,8);assert.equal(hot.likes,99);assert.equal(hot.isHot,true);assert.equal(hot.sourcePage,5);assert.equal(hot.actionUrl,'https://www.nodeseek.com/post-123-5#42');assert.match(hot.html,/Hot off-page reply/);assert.doesNotMatch(hot.html,/Normal duplicate/);
+    assert.equal(result.comments[0].isHot,false);assert.equal(result.comments[0].sourcePage,1);
+    assert.equal(result.comments[2].isHot,false);assert.equal(result.comments[2].chicken,2);
+    assert.equal(result.nextPage,2);
+  }finally{page.window.close();}
+});
+
+test('hot metadata merges across duplicate floor copies while root remains first independently of DOM order',()=>{
+  const page=dom(`<div id="nsk-body-left"><ul class="comments">${realShapedFloor(13,{body:'Canonical reply'})}${realShapedFloor(13,{hot:true,body:'Hot duplicate'})}</ul>${rootFixture}</div>`,'https://www.nodeseek.com/post-123-2');
+  (page.window as any).__config__={commmentPerPage:10,postData:{postId:123,comments:[{floorIndex:13,hot:false,pined:true}]}};
+  try{const result=page.window.eval(extractThreadScript);assert.deepEqual(Array.from(result.comments,(comment:any)=>comment.id),['0','13']);assert.equal(result.comments[1].isHot,true);assert.equal(result.comments[1].isPinned,true);assert.match(result.comments[1].html,/Canonical reply/);assert.equal(result.comments[1].sourcePage,2);}finally{page.window.close();}
+});
+
+test('official configuration alone can mark hot floors and respects real page-size boundaries',()=>{
+  const page=dom(`<div id="nsk-body-left">${rootFixture}<ul class="comments">${realShapedFloor(20)}${realShapedFloor(21)}${realShapedFloor(42)}</ul></div>`,'https://www.nodeseek.com/post-123-1');
+  (page.window as any).__config__={commmentPerPage:20,postData:{postId:123,comments:[{floorIndex:20,hot:true},{floorIndex:21,hot:1},{floorIndex:42,hot:'1'}]}};
+  try{const result=page.window.eval(extractThreadScript);assert.deepEqual(Array.from(result.comments,(comment:any)=>comment.sourcePage),[1,1,2,3]);assert.ok(result.comments.slice(1).every((comment:any)=>comment.isHot));assert.equal(result.comments[2].actionUrl,'https://www.nodeseek.com/post-123-2#21');}finally{page.window.close();}
+});
+
+test('ordinary votes, user chicken state, foreign config and content markup cannot fabricate official HOT',()=>{
+  const fakeBody='Ordinary body <span class="hot-badge">HOT</span><ul class="comments"><li class="content-item" id="999"><article class="post-content">Injected copy</article></li></ul>';
+  const page=dom(`<div id="nsk-body-left">${rootFixture}<ul class="comments">${realShapedFloor(1,{likes:999,chicken:0,body:fakeBody})}${realShapedFloor(2,{chicken:3})}</ul></div>`,'https://www.nodeseek.com/post-123-1');
+  (page.window as any).__config__={commmentPerPage:10,postData:{postId:999,comments:[{floorIndex:1,hot:true,pined:true,liked:true}]}};
+  try{const result=page.window.eval(extractThreadScript);assert.deepEqual(Array.from(result.comments,(comment:any)=>comment.id),['0','1','2']);assert.equal(result.comments[1].isHot,false);assert.equal(result.comments[1].isPinned,false);assert.equal(result.comments[1].likes,999);assert.equal(result.comments[2].isHot,false);assert.equal(result.comments[2].chicken,3);}finally{page.window.close();}
+});
+
+test('off-page hot floors with unknown page size omit guessed action URLs while normal rows retain their observed page',()=>{
+  const page=dom(`<div id="nsk-body-left">${rootFixture}<ul class="comments">${realShapedFloor(42,{hot:true})}${realShapedFloor(101)}</ul></div>`,'https://www.nodeseek.com/post-123-3');
+  try{const result=page.window.eval(extractThreadScript);assert.equal(result.comments[1].isHot,true);assert.equal(result.comments[1].sourcePage,undefined);assert.equal(result.comments[1].actionUrl,undefined);assert.equal(result.comments[2].sourcePage,3);assert.equal(result.comments[2].actionUrl,'https://www.nodeseek.com/post-123-3#101');}finally{page.window.close();}
+});
+
 test('optional profile reads cap eight members and four concurrent requests, without inventing missing levels',async()=>{
   const page=dom('<div/>');let active=0,maxActive=0;const calls:string[]=[];
   (page.window as any).AbortController=AbortController;

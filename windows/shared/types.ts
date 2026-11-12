@@ -1,4 +1,5 @@
 import type {ParityAPI} from './parity';
+import type {DesktopAPI} from './desktop';
 export interface Post {
   id: string;
   url: string;
@@ -46,6 +47,12 @@ export interface Comment {
   disliked?: boolean;
   isAuthor?: boolean;
   isOwn?: boolean;
+  /** Official NodeSeek hot flag or its metadata badge, independent of chicken. */
+  isHot?: boolean;
+  /** The official configuration spells the pinned flag `pined`. */
+  isPinned?: boolean;
+  sourcePage?: number;
+  actionUrl?: string;
 }
 export interface ThreadResult {
   id: string;
@@ -116,7 +123,7 @@ export interface Bootstrap {
   official: OfficialViewState;
   blockedUsers: number[];
 }
-export interface SeekDeskAPI extends ParityAPI {
+export interface SeekDeskAPI extends ParityAPI,DesktopAPI {
   bootstrap(): Promise<Bootstrap>;
   listPosts(request: ListingRequest): Promise<ListingResult>;
   readThread(post: Post, page?: number): Promise<ThreadResult>;

@@ -189,18 +189,29 @@ export const extractThreadScript = String.raw`(() => {
     if (!value) return undefined;
     try { const u = new URL(value, location.href); return u.protocol === 'https:' && !u.username && !u.password ? u.href : undefined; } catch { return undefined; }
   };
-  const items = [...main.querySelectorAll('.nsk-post-wrapper .content-item[id="0"], .comments > .content-item[id]')]
-    .filter(item => /^\d+$/.test(item.id) && !item.hidden);
+  // The official comments list starts with hot/pinned copies, including floors
+  // from other pages. Keep the root first and retain those off-page comments.
+  const items = [...main.querySelectorAll('.nsk-post-wrapper .content-item[id="0"]'), ...main.querySelectorAll('.comments > .content-item[id]')]
+    .filter(item => /^\d+$/.test(item.id) && integer(item.id)!==undefined && !item.hidden && !item.closest('.post-content'));
   if (!items.length) return null;
-  const seen = new Set();
-  const comments = items.flatMap(item => {
-    if (seen.has(item.id)) return [];
-    seen.add(item.id);
+  const byFloor = new Map();
+  for(const item of items){const floor=String(Number(item.id));const copies=byFloor.get(floor)||[];copies.push(item);byFloor.set(floor,copies);}
+  const configured = window.__config__?.postData;
+  const configuredRows = Number(configured?.postId) === Number(route[1]) && Array.isArray(configured.comments) ? configured.comments : [];
+  const pageSize=integer(window.__config__?.commmentPerPage);
+  const enabled=value=>[true,1,'1'].includes(value);
+  const comments = [...byFloor].flatMap(([floorId,copies]) => {
+    const item=copies[0];
     const meta = item.querySelector(':scope > .nsk-content-meta-info');
     const author = meta?.querySelector('.author-name');
     const authorId = Number(author?.getAttribute('href')?.match(/^\/space\/([1-9]\d*)\/?$/)?.[1]) || undefined;
-    const configured = window.__config__?.postData;
-    const row = Number(configured?.postId) === Number(route[1]) && Array.isArray(configured.comments) ? configured.comments.find(row=>Number(row.floorIndex)===Number(item.id)) : undefined;
+    const rows=configuredRows.filter(row=>Number(row.floorIndex)===Number(floorId));
+    const row=rows.find(row=>Number(row.commentId)===Number(item.getAttribute('data-comment-id')))||rows[0];
+    const isHot=floorId!=='0'&&(rows.some(row=>enabled(row.hot))||copies.some(copy=>copy.querySelector(':scope > .nsk-content-meta-info .floor-link-wrapper > .hot-badge')));
+    const isPinned=floorId!=='0'&&rows.some(row=>enabled(row.pined));
+    const originalPage=floorId==='0'?1:pageSize&&pageSize<=1000?Math.floor((Number(floorId)-1)/pageSize)+1:!isHot&&!isPinned?Number(route[2]):undefined;
+    const sourcePage=Number.isSafeInteger(originalPage)&&originalPage>0&&originalPage<=100000?originalPage:undefined;
+    const actionUrl=sourcePage?location.origin+'/post-'+route[1]+'-'+sourcePage+'#'+floorId:undefined;
     const tags=[...(meta?.querySelectorAll('.author-info .role-tag:not(.is-poster), .role-tag:not(.is-poster)') || [])].map(plain).filter(Boolean);
     const levelLabel=plain(meta?.querySelector('[data-rank], .user-level, .author-level, .level-tag')) || tags.find(tag=>/^(?:Lv\.?\s*|等级\s*)(\d+)$/i.test(tag)) || '';
     const level=integer(row?.rank ?? row?.member_rank ?? row?.commenter_rank ?? meta?.querySelector('[data-rank]')?.getAttribute('data-rank') ?? levelLabel.match(/(?:Lv\.?\s*|等级\s*)(\d+)/i)?.[1]);
@@ -240,8 +251,8 @@ export const extractThreadScript = String.raw`(() => {
     const menu=item.querySelector(':scope > .comment-menu');
     const reaction=title=>menu?.querySelector('[title="'+title+'"]');
     const count=(title,fallback)=>integer(/^\d+$/.test(plain(reaction(title)))?plain(reaction(title)):fallback);
-    return [{id:item.id, author:plain(author) || 'NodeSeek 用户',authorId,level,role,
-      isAuthor:item.id==='0'||Boolean(meta?.querySelector('.is-poster')),isOwn:row?.poster?.isMe===true,
+    return [{id:floorId, author:plain(author) || 'NodeSeek 用户',authorId,level,role,isHot,isPinned,sourcePage,actionUrl,
+      isAuthor:floorId==='0'||Boolean(meta?.querySelector('.is-poster')),isOwn:row?.poster?.isMe===true,
       signature:plain(item.querySelector(':scope > .signature, :scope > .user-signature')) || undefined,
       signatureHtml:signature?.innerHTML || undefined,
       likes:count('点赞',row?.upvoteCount),chicken:count('加鸡腿',row?.likeCount),dislikes:count('反对',row?.dislikeCount),
@@ -251,7 +262,7 @@ export const extractThreadScript = String.raw`(() => {
       ...(typeof row?.followed==='boolean'?{following:row.followed}:{}),
       avatar:safe(photo?.getAttribute('data-src') || photo?.getAttribute('src')) || (authorId?location.origin+'/avatar/'+authorId+'.png':undefined),
       date:time?.getAttribute('datetime') || time?.getAttribute('title') || plain(time),
-      floor:item.id === '0' ? '楼主' : '#' + item.id,
+      floor:floorId === '0' ? '楼主' : '#' + floorId,
       html:(clone?.innerHTML || '') + (warning ? '<p>' + warning.textContent.replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])) + '</p>' : '')}];
   });
   const page = Number(route[2]);
