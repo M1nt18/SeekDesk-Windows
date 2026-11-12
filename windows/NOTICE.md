@@ -15,6 +15,8 @@ React / React DOM：MIT；Electron：MIT，包含 Chromium 和 Node.js 的独立
 
 本轮源码另使用 markdown-it（MIT）、DOMPurify（Apache-2.0 OR MPL-2.0）、decimal.js（MIT）、sharp（Apache-2.0，所用 libvips 及二进制依赖许可见安装包内的 THIRD-PARTY-NOTICES）。榜单数据来自 api.bimg.eu.org；管理记录来自 api.xxboxx.de 的 NS Seek 服务；汇率来自 Live-Rates 与 ExchangeRate.fun；图片上传由用户自行配置的 NodeImage 服务提供。六色任务栏图标由上游品牌资源生成，权利归相应作者。
 
+在线更新使用 electron-updater（MIT），仅访问本项目公开稳定版仓库，不携带维护者令牌或论坛登录 Cookie。依赖许可随对应源代码与安装载荷保留。
+
 本地生成的 Windows 安装程序尚未进行代码签名。
 
-后续源码修订另集成 Woodll 的 Nodeseek Pro 1.0.8（GreasyFork 567109，GPL-3.0-only），仅在内嵌官方网页的隔离世界运行。固定资源包括 Layui 2.10.3（MIT）和 highlight.js 11.9.0（BSD-3-Clause）；原脚本、依赖许可、来源和 SHA-256 见 vendor/nodeseek-pro/。原脚本源文件保持原样，宿主的资源/视口适配记录见 docs/NODESEEK-PRO.md。此源码修订尚未重新生成发行安装包。
+Windows 版另集成 Woodll 的 Nodeseek Pro 1.0.8（GreasyFork 567109，GPL-3.0-only），仅在内嵌官方网页的隔离世界运行。固定资源包括 Layui 2.10.3（MIT）和 highlight.js 11.9.0（BSD-3-Clause）；原脚本、依赖许可、来源和 SHA-256 见 vendor/nodeseek-pro/。原脚本源文件保持原样，宿主的资源/视口适配记录见 docs/NODESEEK-PRO.md。
