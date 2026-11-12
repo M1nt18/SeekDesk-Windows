@@ -1,6 +1,6 @@
 {
   "name": "seekdesk-windows",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "SeekDesk Windows · NodeSeek 多标签阅读客户端",
   "author": "SeekDesk Windows contributors (upstream: cshaizhihao)",

@@ -14,16 +14,16 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078D4" alt="Windows 10 / 11">
   <img src="https://img.shields.io/badge/architecture-x64-555555" alt="x64">
-  <img src="https://img.shields.io/badge/version-0.1.0-2ea44f" alt="版本 0.1.0">
+  <img src="https://img.shields.io/badge/version-0.1.1-2ea44f" alt="版本 0.1.1">
   <img src="https://img.shields.io/badge/built%20with-Electron%20%2B%20React%20%2B%20TypeScript-3178c6" alt="Electron + React + TypeScript">
   <img src="https://img.shields.io/badge/license-GPL--3.0--only-blue" alt="GPL-3.0-only">
   <a href="https://github.com/M1nt18/SeekDesk-Windows/actions/workflows/windows-source.yml"><img src="https://github.com/M1nt18/SeekDesk-Windows/actions/workflows/windows-source.yml/badge.svg" alt="Windows 源码检查"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/M1nt18/SeekDesk-Windows/releases/download/v0.1.0/SeekDesk-Windows-0.1.0-x64-Setup.exe">下载 Windows 安装包</a> ·
+  <a href="https://github.com/M1nt18/SeekDesk-Windows/releases/download/v0.1.1/SeekDesk-Windows-0.1.1-x64-Setup.exe">下载 Windows 安装包</a> ·
   <a href="https://github.com/M1nt18/SeekDesk-Windows">GitHub 项目</a> ·
-  <a href="https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.0">0.1.0 版本说明</a> ·
+  <a href="https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.1">0.1.1 版本说明</a> ·
   <a href="https://github.com/M1nt18/SeekDesk-Windows/issues">问题反馈</a> ·
   <a href="https://www.nodeseek.com/">NodeSeek</a>
 </p>
@@ -42,10 +42,12 @@
 </p>
 
 > [!IMPORTANT]
-> **0.1.0 提供 Windows x64 安装包、免安装压缩包及配套源码。** 从 [Releases](https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.0) 下载，并使用同页 `SHA256SUMS.txt` 校验文件。当前安装包未进行 Windows 代码签名。
+> **0.1.1 提供 Windows x64 安装包、免安装压缩包及配套源码。** 从 [Releases](https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.1) 下载，并使用同页 `SHA256SUMS.txt` 校验文件。当前安装包未进行 Windows 代码签名。
 
 > [!NOTE]
-> **0.1.0 下载文件已重新打包**：包含关闭询问与托盘、窗口大小记忆、快捷方式安装选项、在线更新及缓存清理、HOT 热评和回复编辑器关闭按钮。早前下载的旧包没有更新器，同版本也不会自动升级，请重新下载并手动安装一次；之后安装版可在线更新到更高版本。详情见 [重新打包说明](windows/docs/DESKTOP-UNRELEASED.md)。
+> **0.1.1 补齐本轮核对的 32 项问题**：当前页全部作者的等级在正文后逐步读取，帖子上下都有数字分页，个人主题恢复实际发帖时间，并补回资料卡、概况、通知正文预览、私信模式与状态隔离。详见 [0.1.1 更新内容](windows/docs/releases/v0.1.1.md) 与 [逐项核对记录](windows/docs/parity-audit.md)。
+
+> **从旧版升级**：重新打包的 0.1.0 安装版可在“设置 → 关于”检查更新；早期没有更新器的 0.1.0 请直接下载安装 0.1.1。免安装版请完整下载新版。旧版说明保留于 [0.1.0 发布页](https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.0) 与 [重新打包说明](windows/docs/DESKTOP-UNRELEASED.md)。
 
 <a id="about"></a>
 
@@ -112,7 +114,9 @@ Windows 移植维护：[@M1nt18](https://github.com/M1nt18)。原版 SeekDesk �
 - **多标签阅读**：点击打开、Ctrl + 点击或中键后台打开，拖动排序，关闭当前或全部标签；阅读总览可以关闭和重新打开。
 - **阅读位置恢复**：保留标签顺序、当前分页和滚动位置；从设置、扩展中心、个人页面返回时继续阅读，也可恢复上次打开的标签。
 - **灵活布局**：调整侧栏和帖子栏宽度，收起列表或侧栏，切换三栏、列表与正文、专注阅读；窄窗口切换到阅读区。
-- **楼层信息**：显示头像、等级、角色、楼主标记、时间和楼层；支持分页、楼层链接和正文中的帖子跳转。
+- **楼层信息**：显示头像、等级、角色、楼主标记、时间和楼层。正文先显示，再为当前页全部可识别作者读取资料；取消原先仅 8 位作者的上限，失败可重试，完成官方验证后可继续读取。
+- **上下数字分页**：楼主正文之后、跟帖之前以及末条回复之后都有页码与前后箭头，可直接回第一页；只使用站点提供的分页信息，切页清除旧楼层定位。
+- **作者资料卡**：点击作者先查看轻资料卡，展示公开等级、角色、统计、加入时间和简介，再进入个人主页或私信。
 - **清晰分区**：主楼、回复和签名分开排版。签名不加标题或背景，通过虚线与正文分隔；签名链接为绿色，普通文字为灰色，正文超链接为蓝色。
 - **图片与复杂内容**：表格、代码、折叠内容、图片放大、前后切图、旋转、缩放、自适应、实际尺寸、保存和复制图片。
 - **NQ / TQ 报告**：识别 ANSI 彩色终端与网页终端原文，保留完整报告并支持完整复制；报告标签可切换，NQ 与 TQ 的缩放分别记忆。
@@ -129,7 +133,7 @@ Windows 移植维护：[@M1nt18](https://github.com/M1nt18)。原版 SeekDesk �
 ### 写作与互动
 
 - **发帖与编辑**：选择版块和阅读权限，发布新主题；加载原始 Markdown，编辑当前账号有权修改的主题或评论。
-- **统一 Markdown 编辑器**：发帖、回帖和私信共用标题、加粗、斜体、删除线、行内代码、代码块、引用、列表、表格、分隔线、链接等工具，支持撤销和重做。
+- **统一 Markdown 编辑器**：发帖、回帖和 Markdown 私信共用标题、加粗、斜体、删除线、行内代码、代码块、引用、列表、表格、分隔线、链接等工具，支持撤销和重做；纯文本私信使用普通输入框。
 - **三种视图**：仅编辑、编辑与预览对照、仅预览；编辑区高度可调整，也可展开编辑区。
 - **回复与引用独立**：“回复”带入作者和楼层链接；“引用”同时带入原文。操作后打开编辑器并聚焦到草稿末尾。
 - **默认收起回帖区**：浏览时不占用大块阅读空间，点击“写回复”再展开；成功发布后收起并定位新楼层。
@@ -146,10 +150,12 @@ Windows 移植维护：[@M1nt18](https://github.com/M1nt18)。原版 SeekDesk �
 
 ### 个人空间、通知与私信
 
-- 查看已发布主题、评论、关注和粉丝；主题与评论列表使用独立行背景，主题不显示无意义的“#0”。
+- 个人空间默认展示概况与只读 README，可从统计卡进入主题、评论，以及本人的关注和粉丝列表。已发布主题显示实际发帖年月日与时分秒，列表先出现，时间随后补齐，失败可重试。
+- 主题与评论列表使用独立行背景，主题不显示无意义的“#0”；保留角色标签、查看原页和账号设置入口。
 - 编辑自己的个人介绍、个人 README 和帖子签名。
-- 查看“@我”“回复”“私信”三类通知及未读数量，跳转对应帖子和楼层。
-- 浏览完整私信会话，按 UID 或个人主页链接打开会话，使用 Markdown 编辑器发送私信。
+- 查看“@我”“回复”“私信”三类通知及各自未读数量；选择通知即可在通知页预览对应楼层正文，也可打开原帖。
+- 浏览私信会话，按 UID 或个人主页链接打开会话，并按账号保存最近与较早联系人。进入长会话或发送成功后定位最新消息。
+- 私信支持 Markdown 与纯文本读写，保留原消息格式；切换撰写模式不丢内容，草稿同时保存模式和图片尺寸。
 - 回复、新主题、编辑内容和私信草稿按已确认账号保存，包含图片尺寸设置；切换账号时隔离草稿并清理关联阅读缓存。
 
 ### 外观与阅读设置
@@ -158,7 +164,7 @@ Windows 移植维护：[@M1nt18](https://github.com/M1nt18)。原版 SeekDesk �
 - **六种品牌色**：钴蓝、海松青、蕨叶绿、鸢尾紫、琥珀橙、珊瑚红，联动顶栏标识与运行中的任务栏图标。
 - **全局界面字号 14–28**，正文基础字号 **14–40**；帖子列表、作者栏、论坛版块、热榜和报告尺寸分别调整，并提供预览。
 - 彩色版块、等级和角色标记，热榜前三名图标、加粗标题、更新时间与总条数。
-- 菜单支持点击空白或按 Esc 关闭，页面动效遵循系统“减少动态效果”偏好。
+- 菜单支持点击空白或按 Esc 关闭；收起帖子列表的选择可记忆，窄屏临时收起不覆盖该偏好。页面动效遵循系统“减少动态效果”偏好。
 
 <a id="extensions"></a>
 
@@ -216,9 +222,9 @@ Windows 移植维护：[@M1nt18](https://github.com/M1nt18)。原版 SeekDesk �
 
 ### 下载安装
 
-1. 下载 [SeekDesk-Windows-0.1.0-x64-Setup.exe](https://github.com/M1nt18/SeekDesk-Windows/releases/download/v0.1.0/SeekDesk-Windows-0.1.0-x64-Setup.exe)，运行后选择安装位置。无需另外安装 Node.js。
-2. 或下载 [免安装压缩包](https://github.com/M1nt18/SeekDesk-Windows/releases/download/v0.1.0/SeekDesk-Windows-0.1.0-x64-portable.zip)，完整解压到一个文件夹，运行其中的 `SeekDesk Windows.exe`；请保留旁边的资源和依赖文件。
-3. 首版没有 Windows 代码签名，首次运行可能显示“未知发布者”。请从本仓库下载，并可用 `certutil -hashfile 文件名 SHA256` 核对发布页校验值。
+1. 下载 [SeekDesk-Windows-0.1.1-x64-Setup.exe](https://github.com/M1nt18/SeekDesk-Windows/releases/download/v0.1.1/SeekDesk-Windows-0.1.1-x64-Setup.exe)，运行后选择安装位置。无需另外安装 Node.js。
+2. 或下载 [免安装压缩包](https://github.com/M1nt18/SeekDesk-Windows/releases/download/v0.1.1/SeekDesk-Windows-0.1.1-x64-portable.zip)，完整解压到一个文件夹，运行其中的 `SeekDesk Windows.exe`；请保留旁边的资源和依赖文件。
+3. 当前安装包未进行 Windows 代码签名，首次运行可能显示“未知发布者”。请从本仓库下载，并可用 `certutil -hashfile 文件名 SHA256` 核对发布页校验值。
 
 发布文件经过包内容检查：不携带维护者的论坛登录、Cookie、草稿、API Key、测试目录或本机调试日志。首次运行会在使用者自己的系统中建立独立配置。
 
@@ -254,7 +260,7 @@ npm start
 
 账号等级、受限版块、历史搜索、发帖频率和互动额度仍由 NodeSeek 校验。遇到登录失效或站点验证时，可回到官方页面处理。
 
-**重新打包的 0.1.0 安装版支持在线更新到后续更高版本。** 更新来自本仓库 GitHub 稳定发布，使用 `latest.yml` 清单和 SHA-512 校验，可取消下载、重启续装并清理应用更新缓存。早前下载的 0.1.0 旧包没有更新器，同版本也不会自动升级，须重新下载并手动安装一次。免安装版仍通过 Releases 手动下载。
+**0.1.1 安装版支持在线更新。** 更新来自本仓库 GitHub 稳定发布，使用 `latest.yml` 清单和 SHA-512 校验，可取消下载、重启续装并清理应用更新缓存。重新打包的 0.1.0 安装版可直接检查并更新到 0.1.1；早期没有更新器的 0.1.0 请手动下载安装新版。免安装版通过 [Releases](https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.1) 手动下载。
 
 <a id="shortcuts"></a>
 
@@ -416,11 +422,13 @@ npm run test:public
 | `test:reply-refresh` | 新回复跨页定位、延迟同步时只读重试、作者筛选下的可见性和刷新读取 |
 | `test:public` | 实际匿名读取公开 RSS、热榜、管理记录和汇率服务 |
 
-当前验证包括 **80 项单元与契约测试**，以及 Electron 的界面、会话、阅读器和回复刷新回归。论坛写操作和 NodeImage 上传使用独立测试替身，不向真实论坛发布测试内容；公开读取和计算器另有实际网络验证。
+0.1.1 的当前验证包括 **177 项单元与契约测试**，以及 Electron 的资料/分页、个人空间、通知私信、界面、会话、阅读器、桌面和回复刷新回归。论坛写操作和 NodeImage 上传使用独立测试替身，不向真实论坛发布测试内容。
+
+本轮匿名实读公开帖子成功，取得正文楼层及数字分页；同一匿名会话的用户资料接口返回 403 站点验证页，因此没有将真实线上等级读取记作成功。遇到这一情况，正文仍可阅读，资料可在官方窗口完成登录或验证后重试。
 
 GitHub Actions 在 Windows 环境执行依赖安装、单元测试和源码编译。安装包生成、内容检查与上传由维护者单独执行，不会由首次推送自动触发旧 macOS 发布流程。
 
-真实账号登录、人工验证、受限内容及线上写权限仍需在自己的官方会话下验收。详细范围见 [当前验收记录](windows/docs/VERIFICATION-CURRENT.md) 与 [功能对照](windows/docs/FEATURE-PARITY.md)。
+真实账号登录、人工验证、受限内容及线上写权限仍需在自己的官方会话下验收。0.1.1 本轮的详细范围见 [原版核对与验证记录](windows/docs/parity-audit.md)；较早记录保留于 [历史验收记录](windows/docs/VERIFICATION-CURRENT.md) 与 [功能对照](windows/docs/FEATURE-PARITY.md)。
 
 ### 工程结构
 
@@ -434,7 +442,7 @@ GitHub Actions 在 Windows 环境执行依赖安装、单元测试和源码编�
 | `windows/docs/` | 功能对照、NodeSeek Pro 说明与验证记录 |
 | `Sources/`、`Tests/` | 原版 macOS 的 Swift 源码与测试，作为移植参考保留 |
 
-Windows 的版本以 `windows/package.json` 与 `v0.1.0` 标签为准。根目录 `VERSION`、`BUILD_NUMBER` 属于保留的 macOS 参考构建，原工作流存档在 `docs/upstream-workflows/`，不会执行。
+Windows 的版本以 `windows/package.json` 与 `v0.1.1` 标签为准。根目录 `VERSION`、`BUILD_NUMBER` 属于保留的 macOS 参考构建，原工作流存档在 `docs/upstream-workflows/`，不会执行。
 
 <a id="faq"></a>
 
@@ -492,7 +500,7 @@ Windows 的版本以 `windows/package.json` 与 `v0.1.0` 标签为准。根目�
 <details>
 <summary><strong>是否支持离线、云同步或自动更新？</strong></summary>
 
-当前提供本机草稿、偏好与有限阅读缓存，没有完整离线论坛或跨设备同步。重新打包的 0.1.0 安装版可检查后续更高版本，由用户确认下载和安装；免安装版可从本仓库 Releases 手动下载。早前的 0.1.0 旧包需先手动重装一次，也可以更新源码后重新构建运行。
+当前提供本机草稿、偏好与有限阅读缓存，没有完整离线论坛或跨设备同步。0.1.1 安装版及重新打包的 0.1.0 安装版可从本仓库检查新版，由用户确认下载和安装；早期没有更新器的 0.1.0 请手动下载安装 0.1.1，免安装版从 Releases 下载完整新版。
 
 </details>
 
@@ -519,5 +527,5 @@ Windows 的版本以 `windows/package.json` 与 `v0.1.0` 标签为准。根目�
 
 ---
 
-<p align="center">SeekDesk Windows · 0.1.0</p>
+<p align="center">SeekDesk Windows · 0.1.1</p>
 <p align="center">让阅读、切换和表达，在同一个窗口里继续。</p>

@@ -17,7 +17,7 @@ export function validateActionRequest(input:unknown): ForumActionRequest {
   const value=input as Record<string,unknown>;
   switch(value.kind) {
     case 'reply': return {kind:'reply',url:normalizePostUrl(value.url),content:content(value.content)};
-    case 'message': return {kind:'message',memberId:member(value.memberId),content:content(value.content)};
+    case 'message': if(value.markdown!==undefined&&typeof value.markdown!=='boolean')throw new Error('私信格式无效');return {kind:'message',memberId:member(value.memberId),content:content(value.content),markdown:value.markdown!==false};
     case 'follow':
       if(typeof value.follow!=='boolean') throw new Error('关注操作参数无效');
       return {kind:'follow',memberId:member(value.memberId),follow:value.follow};
@@ -76,7 +76,7 @@ export function createActionScript(input:unknown,expectedAccountId:number): stri
       }
       if(request.kind==='message') {
         if(request.memberId===owner) throw new Error('不能给自己发送私信');
-        await post('/api/notification/message/send',{receiverUid:request.memberId,content:request.content,markdown:true});
+        await post('/api/notification/message/send',{receiverUid:request.memberId,content:request.content,markdown:request.markdown!==false});
         return {message:'私信已发送'};
       }
       const target=new URL(request.url),route=new RegExp('^/post-([1-9][0-9]*)-[1-9][0-9]*/?$').exec(location.pathname);

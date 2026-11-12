@@ -62,10 +62,10 @@ function installFixture(fixture){
   app=await _electron.launch({executablePath:require('electron'),args:[entry],env,timeout:45000});page=await app.firstWindow();page.on('pageerror',error=>report.errors.push(error.message));
   await page.locator('.workspace').waitFor();await page.evaluate(()=>window.seekdesk.openOfficial('https://www.nodeseek.com/'));await page.waitForFunction(async()=>(await window.seekdesk.checkAccount()).id===42);await page.evaluate(()=>window.seekdesk.closeOfficial());
   await page.getByTestId('post-row').first().waitFor({timeout:30000});await page.getByTestId('post-row').first().click();await page.locator('.thread-original').waitFor();
-  assert.equal(await page.locator('.comment[data-floor="25"]').count(),0);assert.match(await page.locator('.thread-pagination').innerText(),/第 1 页/);
+  assert.equal(await page.locator('.comment[data-floor="25"]').count(),0);await page.getByRole('navigation',{name:'帖子顶部分页',exact:true}).locator('[data-page="1"][aria-current="page"]').waitFor();
   const editor=page.locator('.fixed-reply .md-editor textarea');if(!await editor.count())await page.getByRole('button',{name:'写回复',exact:true}).click();
   await editor.fill('只进入隔离测试接口的新回复');await page.getByTestId('submit-reply').click();
-  await page.locator('.comment[data-floor="25"]').waitFor({timeout:20000});await page.getByText('第 3 页',{exact:true}).waitFor();
+  await page.locator('.comment[data-floor="25"]').waitFor({timeout:20000});await page.getByRole('navigation',{name:'帖子顶部分页',exact:true}).locator('[data-page="3"][aria-current="page"]').waitFor();
   assert.match(await page.locator('.comment[data-floor="25"]').innerText(),/新回复已同步 revision 1/);
   const afterReply=await app.evaluate(()=>globalThis.__replyFixture);
   assert.equal(afterReply.writes.length,1);assert.equal(afterReply.writes[0].path,'/api/content/new-comment');assert.equal(afterReply.writes[0].body.postId,123);assert.ok(afterReply.page3Reads>=2);

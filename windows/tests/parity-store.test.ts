@@ -77,3 +77,27 @@ test('all UI appearance slider bounds persist with percent scales unchanged',asy
   }
   for(const [key,[lower,upper]] of Object.entries(bounds)){assert.throws(()=>validateAppearance({...appearanceDefaults,[key]:lower-1}));assert.throws(()=>validateAppearance({...appearanceDefaults,[key]:upper+1}));}
 }));
+
+test('older conversation contacts survive restart, deduplicate, keep names and remain account isolated',async()=>temporary(async directory=>{
+  const store=new ParityStore(directory);
+  await store.rememberConversationContact(101,{id:201,name:'Older peer',content:'must not persist'});
+  await store.rememberConversationContact(101,{id:202,name:'Recent peer'});
+  await store.rememberConversationContact(101,{id:201,name:''});
+  await store.rememberConversationContact(102,{id:201,name:'Another account contact'});
+  await store.rememberConversationContact(101,{id:101,name:'self'});
+  assert.deepEqual(store.readConversationContacts(101),[{id:201,name:'Older peer'},{id:202,name:'Recent peer'}]);
+  assert.deepEqual(store.readConversationContacts(undefined),[]);
+  assert.deepEqual(store.readConversationContacts(999),[]);
+  const reloaded=new ParityStore(directory);await reloaded.load();
+  assert.deepEqual(reloaded.readConversationContacts(101),store.readConversationContacts(101));
+  assert.deepEqual(reloaded.readConversationContacts(102),[{id:201,name:'Another account contact'}]);
+  assert.doesNotMatch(await fs.readFile(path.join(directory,'workspace-features.json'),'utf8'),/must not persist/);
+  await assert.rejects(store.rememberConversationContact(undefined,{id:201,name:'invalid owner'}),/账号/);
+  await assert.rejects(store.rememberConversationContact(101,{id:-2,name:'invalid peer'}),/联系人/);
+  await assert.rejects(store.rememberConversationContact(101,{id:3,name:'bad\u0000name'}),/联系人/);
+}));
+test('private-message drafts retain an explicit plain-text flag',()=>{
+  assert.equal(validateDraft({content:'**literal**',markdown:false})?.markdown,false);
+  assert.equal(validateDraft({content:'**bold**',markdown:true})?.markdown,true);
+  assert.throws(()=>validateDraft({content:'text',markdown:'false'}),/格式/);
+});

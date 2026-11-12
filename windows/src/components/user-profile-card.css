@@ -1,0 +1,14 @@
+.user-profile-card {min-width:0;}
+.user-profile-card>header {display:flex;gap:13px;align-items:center;margin:0 0 18px;}
+.user-profile-card>header .avatar.large {width:56px;height:56px;border-radius:12px;}
+.user-profile-card h3 {font-size:1.2rem;margin:0 0 5px;}
+.user-profile-card header p {font-size:max(12px,.78rem);color:var(--muted);margin:0 0 7px;}
+.user-profile-badges {display:flex;gap:5px;flex-wrap:wrap;}
+.user-profile-metrics {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:0 0 15px;}
+.user-profile-metrics>div {display:flex;flex-direction:column;gap:5px;padding:10px;border-radius:6px;background:var(--surface-alt);}
+.user-profile-metrics span {color:var(--muted);font-size:max(12px,.77rem);}
+.user-profile-metrics strong {font-size:1.1rem;font-variant-numeric:tabular-nums;}
+.user-profile-card .user-profile-joined {font-size:max(12px,.84rem);color:var(--muted);}
+.user-profile-bio {font-size:max(12px,.88rem);line-height:1.75;white-space:pre-wrap;max-height:11em;overflow:auto;}
+.user-profile-error {font-size:max(12px,.82rem);line-height:1.7;color:var(--muted);}
+.user-profile-card>footer {display:flex;justify-content:space-between;gap:12px;margin-top:18px;}

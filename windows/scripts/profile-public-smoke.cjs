@@ -1,0 +1,31 @@
+const {_electron}=require('playwright-core');
+const fs=require('node:fs/promises');
+const path=require('node:path');
+const assert=require('node:assert/strict');
+const project=path.resolve(__dirname,'..');
+const profile=path.join(project,'.test-data','profile-public-'+Date.now());
+const output=path.join(project,'verification','profile-public');
+const report={scope:'Anonymous public GET reads in a fresh session; no user credentials or forum writes.',checks:[]};
+let app;
+(async()=>{
+  await fs.mkdir(profile,{recursive:true});await fs.mkdir(output,{recursive:true});
+  await fs.writeFile(path.join(profile,'preferences.json'),JSON.stringify({settings:{theme:'light',uiFontSize:16,fontSize:18,nodeSeekPro:false,compact:false,restoreTabs:true,defaultSource:'rss'},workspace:{tabs:[],activeId:null}}));
+  const env={...process.env,SEEKDESK_TEST:'1',SEEKDESK_USER_DATA:profile};delete env.ELECTRON_RUN_AS_NODE;delete env.SEEKDESK_DEV_URL;
+  app=await _electron.launch({executablePath:require('electron'),args:[project],env});
+  const page=await app.firstWindow();await page.locator('.workspace').waitFor();
+  const result=await page.evaluate(async()=>{
+    const boot=await window.seekdesk.bootstrap();await window.seekdesk.saveSettings({...boot.settings,defaultSource:'auto'});
+    return window.seekdesk.readThread({id:'893437',url:'https://www.nodeseek.com/post-893437-1',title:'Public profile sample',author:'',category:'',published:'',summary:''},1);
+  });
+  assert.equal(result.source,'web');assert.ok(result.comments.length>0);
+  const ids=[...new Set(result.comments.flatMap(row=>row.authorId?[row.authorId]:[]))];
+  report.checks.push({name:'Official public body read',floors:result.comments.length,authors:ids.length,pages:result.pages?.map(item=>item.number)});
+  assert.ok(ids.length>8,'The live sample should exercise authors beyond the old eight-person cap');
+  const profiles=await page.evaluate(ids=>window.seekdesk.readUserProfiles({memberIds:ids}),ids);
+  const ready=profiles.outcomes.filter(item=>item.status==='ready');
+  report.checks.push({name:'All public authors requested without truncation',requested:ids.length,returned:profiles.outcomes.length,ready:ready.length,levels:ready.filter(item=>item.profile?.level!==undefined).length,failures:profiles.outcomes.filter(item=>item.status!=='ready').map(item=>({status:item.status,reason:item.reason}))});
+  report.response=await app.evaluate(({BrowserWindow},id)=>{const win=BrowserWindow.getAllWindows().find(item=>item.webContents.getURL().startsWith('https://www.nodeseek.com/post-'));return win?.webContents.executeJavaScript('(async()=>{const r=await fetch("/api/account/getInfo/'+id+'",{credentials:"same-origin",redirect:"error",cache:"no-store"});let label;try{const t=await r.text();if(r.headers.get("content-type")?.includes("json")){const b=JSON.parse(t);label=typeof b.message==="string"?b.message.slice(0,160):typeof b.error==="string"?b.error.slice(0,160):undefined;}else label=/just a moment|cloudflare|attention required/i.test(t)?"Site verification page":"Non-JSON response";}catch{}return {status:r.status,type:r.headers.get("content-type"),label};})()');},ids[0]);
+  report.context=await app.evaluate(({BrowserWindow})=>Promise.all(BrowserWindow.getAllWindows().filter(win=>win.webContents.getURL().startsWith('https://www.nodeseek.com')).map(win=>win.webContents.executeJavaScript(`({title:document.title,route:location.pathname,hasUserConfig:!!window.__config__})`))));
+  assert.equal(profiles.outcomes.length,ids.length);assert.ok(ready.some(item=>ids.indexOf(item.memberId)>=8&&item.profile?.level!==undefined),'At least one author beyond the old cap should resolve a real level');
+  report.passed=true;console.log(JSON.stringify(report,null,2));
+})().catch(error=>{report.failure=error.message;console.error(error);process.exitCode=1;}).finally(async()=>{await fs.mkdir(output,{recursive:true});await fs.writeFile(path.join(output,'report.json'),JSON.stringify(report,null,2));if(app)await app.close();});

@@ -1,0 +1,8 @@
+.profile-overview {padding:16px;border:1px solid var(--line);border-radius:8px;background:var(--surface);min-width:0;}
+.profile-overview h3 {font-size:1rem;margin:0 0 13px;}
+.profile-overview p {font-size:max(12px,.85rem);line-height:1.8;}
+.profile-readme {font-size:max(12px,.9rem);min-width:0;overflow-wrap:anywhere;}
+.profile-readme a,.profile-readme a:visited {color:#4d9fff;text-decoration:underline;text-underline-offset:3px;}
+.profile-readme img {max-width:100%;height:auto;}
+.profile-readme pre {max-width:100%;overflow:auto;}
+.profile-overview-error {display:flex;align-items:center;gap:12px;color:var(--muted);}

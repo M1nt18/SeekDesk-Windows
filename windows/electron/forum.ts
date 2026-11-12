@@ -40,11 +40,11 @@ export function listingUrl(request: ListingRequest = {}): string {
   return url.href;
 }
 
-function contentUrl(input: string | undefined): string | undefined {
+function contentUrl(input: string | undefined,link=false): string | undefined {
   if (!input || input.length > 8192) return undefined;
   try {
     const url = new URL(input, FORUM_ORIGIN);
-    return url.protocol === 'https:' && !url.username && !url.password ? url.href : undefined;
+    return (url.protocol === 'https:' || link&&url.protocol==='http:') && !url.username && !url.password ? url.href : undefined;
   } catch { return undefined; }
 }
 
@@ -61,11 +61,11 @@ export function sanitizeContent(html: string): string {
     },
     allowedClasses: { code: [/^language-[a-z0-9-]{1,30}$/],div:['nsk-magic-tabs','nsk-magic-tab-title','nsk-magic-tab-body'],span:['nsk-magic-tab-title','seekdesk-terminal-span'],pre:['seekdesk-terminal','seekdesk-terminal-unavailable'],img:['sticker'] },
     allowedStyles:{span:{color:[/^(?:#[0-9a-fA-F]{3,8}|rgba?\([\d\s,.%]+\))$/], 'background-color':[/^(?:#[0-9a-fA-F]{3,8}|rgba?\([\d\s,.%]+\))$/],'font-weight':[/^(?:bold|[1-9]00)$/]}},
-    allowedSchemes: ['https'], allowProtocolRelative: false,
+    allowedSchemes: ['https','http'], allowedSchemesByTag:{img:['https']},allowProtocolRelative: false,
     nonTextTags: ['script', 'style', 'textarea', 'option', 'noscript', 'iframe', 'object', 'embed', 'template', 'svg', 'math'],
     transformTags: {
       a: (_tag, attribs) => ({tagName: 'a', attribs: {
-        ...(contentUrl(attribs.href) ? {href: contentUrl(attribs.href)!} : {}),
+        ...(contentUrl(attribs.href,true) ? {href: contentUrl(attribs.href,true)!} : {}),
         ...(attribs.title ? {title: attribs.title} : {}), target: '_blank', rel: 'noopener noreferrer',
       }}),
       img: (_tag, attribs) => ({tagName: 'img', attribs: {
@@ -184,10 +184,19 @@ export const extractThreadScript = String.raw`(() => {
   const title = main?.querySelector('h1 .post-title-link, .nsk-post-wrapper .post-title-link');
   if (!main || !title) return null;
   const plain = node => (node?.textContent || '').trim();
-  const integer = value => value != null && value !== '' && Number.isSafeInteger(Number(value)) && Number(value)>=0 ? Number(value) : undefined;
-  const safe = value => {
+  const integer = value => (typeof value==='number'||typeof value==='string'&&value.trim()!=='') && Number.isSafeInteger(Number(value)) && Number(value)>=0 ? Number(value) : undefined;
+  const safe = (value,link=false) => {
     if (!value) return undefined;
-    try { const u = new URL(value, location.href); return u.protocol === 'https:' && !u.username && !u.password ? u.href : undefined; } catch { return undefined; }
+    try { const u = new URL(value, location.href); return (u.protocol === 'https:' || link&&u.protocol==='http:') && !u.username && !u.password ? u.href : undefined; } catch { return undefined; }
+  };
+  const memberIdFromHref = value => {
+    if (typeof value!=='string') return undefined;
+    try {
+      const url=new URL(value,location.href);
+      if(url.protocol!=='https:'||!['www.nodeseek.com','nodeseek.com'].includes(url.hostname)||url.username||url.password||url.port)return undefined;
+      const memberId=integer(url.pathname.match(/^\/space\/([1-9]\d*)\/?$/)?.[1]);
+      return memberId>0?memberId:undefined;
+    } catch {return undefined;}
   };
   // The official comments list starts with hot/pinned copies, including floors
   // from other pages. Keep the root first and retain those off-page comments.
@@ -204,18 +213,24 @@ export const extractThreadScript = String.raw`(() => {
     const item=copies[0];
     const meta = item.querySelector(':scope > .nsk-content-meta-info');
     const author = meta?.querySelector('.author-name');
-    const authorId = Number(author?.getAttribute('href')?.match(/^\/space\/([1-9]\d*)\/?$/)?.[1]) || undefined;
     const rows=configuredRows.filter(row=>Number(row.floorIndex)===Number(floorId));
     const row=rows.find(row=>Number(row.commentId)===Number(item.getAttribute('data-comment-id')))||rows[0];
+    const poster=row?.poster;
+    const configuredAuthorId=integer(poster?.uid);
+    const authorId=memberIdFromHref(author?.getAttribute('href')) || (configuredAuthorId>0?configuredAuthorId:undefined);
     const isHot=floorId!=='0'&&(rows.some(row=>enabled(row.hot))||copies.some(copy=>copy.querySelector(':scope > .nsk-content-meta-info .floor-link-wrapper > .hot-badge')));
     const isPinned=floorId!=='0'&&rows.some(row=>enabled(row.pined));
     const originalPage=floorId==='0'?1:pageSize&&pageSize<=1000?Math.floor((Number(floorId)-1)/pageSize)+1:!isHot&&!isPinned?Number(route[2]):undefined;
     const sourcePage=Number.isSafeInteger(originalPage)&&originalPage>0&&originalPage<=100000?originalPage:undefined;
     const actionUrl=sourcePage?location.origin+'/post-'+route[1]+'-'+sourcePage+'#'+floorId:undefined;
     const tags=[...(meta?.querySelectorAll('.author-info .role-tag:not(.is-poster), .role-tag:not(.is-poster)') || [])].map(plain).filter(Boolean);
-    const levelLabel=plain(meta?.querySelector('[data-rank], .user-level, .author-level, .level-tag')) || tags.find(tag=>/^(?:Lv\.?\s*|等级\s*)(\d+)$/i.test(tag)) || '';
-    const level=integer(row?.rank ?? row?.member_rank ?? row?.commenter_rank ?? meta?.querySelector('[data-rank]')?.getAttribute('data-rank') ?? levelLabel.match(/(?:Lv\.?\s*|等级\s*)(\d+)/i)?.[1]);
-    const role=tags.filter(tag=>! /^(?:Lv\.?\s*|等级\s*)\d+$/i.test(tag) && tag!=='楼主').join(' · ') || undefined;
+    const levelPattern=/^(?:Lv\.?\s*|等级\s*)(\d+)(?=$|[\s|｜·•/()（）,，-])/i;
+    const levelLabels=[...(meta?.querySelectorAll('[data-rank], .user-level, .author-level, .level-tag')||[])].map(plain).concat(tags);
+    const levelLabel=levelLabels.find(label=>levelPattern.test(label)) || '';
+    const level=[...[...(meta?.querySelectorAll('[data-rank]')||[])].map(node=>node.getAttribute('data-rank')),row?.rank,row?.member_rank,row?.commenter_rank,levelLabel.match(levelPattern)?.[1]].map(integer).find(value=>value!==undefined);
+    const roleTags=tags.filter(tag=>!levelPattern.test(tag)&&tag!=='楼主');
+    const configuredTags=Array.isArray(poster?.roles)?poster.roles.map(role=>typeof role?.display_text==='string'&&role.display_text.trim()?role.display_text.trim():typeof role?.name==='string'?role.name.trim():'').filter(tag=>tag&&!levelPattern.test(tag)&&tag!=='楼主'):[];
+    const role=[...new Set(roleTags.length?roleTags:configuredTags)].join(' · ') || undefined;
     const photo = meta?.querySelector('.avatar-wrapper img');
     const time = meta?.querySelector('time');
     const content = item.querySelector(':scope > .post-content');
@@ -243,16 +258,16 @@ export const extractThreadScript = String.raw`(() => {
       clone.querySelectorAll('script,style,iframe,object,embed,form,template').forEach(node => node.remove());
       clone.querySelectorAll('[hidden],[aria-hidden="true"]').forEach(node=>{if(node.matches('.nsk-magic-tab-body')||node.closest('.nsk-magic-tab-body')){node.removeAttribute('hidden');node.removeAttribute('aria-hidden');}else node.remove();});
       clone.querySelectorAll('img').forEach(img => { const src = safe(img.getAttribute('data-src') || img.getAttribute('src')); if (src) img.setAttribute('src', src); else img.remove(); });
-      clone.querySelectorAll('a[href]').forEach(a => { const href = safe(a.getAttribute('href')); if (href) a.setAttribute('href',href); else a.removeAttribute('href'); });
+      clone.querySelectorAll('a[href]').forEach(a => { const href = safe(a.getAttribute('href'),true); if (href) a.setAttribute('href',href); else a.removeAttribute('href'); });
     }
     const warning = item.querySelector(':scope > .topic-warning');
     const signature=item.querySelector(':scope > .signature, :scope > .user-signature')?.cloneNode(true);
-    if(signature)signature.querySelectorAll('a[href]').forEach(a=>{const href=safe(a.getAttribute('href'));if(href)a.setAttribute('href',href);else a.removeAttribute('href');});
+    if(signature)signature.querySelectorAll('a[href]').forEach(a=>{const href=safe(a.getAttribute('href'),true);if(href)a.setAttribute('href',href);else a.removeAttribute('href');});
     const menu=item.querySelector(':scope > .comment-menu');
     const reaction=title=>menu?.querySelector('[title="'+title+'"]');
     const count=(title,fallback)=>integer(/^\d+$/.test(plain(reaction(title)))?plain(reaction(title)):fallback);
-    return [{id:floorId, author:plain(author) || 'NodeSeek 用户',authorId,level,role,isHot,isPinned,sourcePage,actionUrl,
-      isAuthor:floorId==='0'||Boolean(meta?.querySelector('.is-poster')),isOwn:row?.poster?.isMe===true,
+    return [{id:floorId, author:plain(author) || (typeof poster?.name==='string'?poster.name.trim():'') || 'NodeSeek 用户',authorId,level,role,isHot,isPinned,sourcePage,actionUrl,
+      isAuthor:floorId==='0'||Boolean(meta?.querySelector('.is-poster'))||enabled(poster?.isOp),isOwn:poster?.isMe===true,
       signature:plain(item.querySelector(':scope > .signature, :scope > .user-signature')) || undefined,
       signatureHtml:signature?.innerHTML || undefined,
       likes:count('点赞',row?.upvoteCount),chicken:count('加鸡腿',row?.likeCount),dislikes:count('反对',row?.dislikeCount),
@@ -260,19 +275,28 @@ export const extractThreadScript = String.raw`(() => {
       gaveChicken:reaction('加鸡腿')?.classList.contains('clicked') || [true,1,'1'].includes(row?.liked),
       disliked:reaction('反对')?.classList.contains('clicked') || [true,1,'1'].includes(row?.disliked),
       ...(typeof row?.followed==='boolean'?{following:row.followed}:{}),
-      avatar:safe(photo?.getAttribute('data-src') || photo?.getAttribute('src')) || (authorId?location.origin+'/avatar/'+authorId+'.png':undefined),
+      avatar:safe(photo?.getAttribute('data-src') || photo?.getAttribute('src')) || safe(poster?.avatar) || (authorId?location.origin+'/avatar/'+authorId+'.png':undefined),
       date:time?.getAttribute('datetime') || time?.getAttribute('title') || plain(time),
       floor:floorId === '0' ? '楼主' : '#' + floorId,
       html:(clone?.innerHTML || '') + (warning ? '<p>' + warning.textContent.replace(/[&<>]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[ch])) + '</p>' : '')}];
   });
   const page = Number(route[2]);
-  const next = [...main.querySelectorAll('[aria-label="pagination"] a[href], .pagination a[href], a.pager-next[href]')]
-    .map(a => {try {return new URL(a.href);} catch {return null;}})
-    .find(u => u?.origin === location.origin && u.pathname === '/post-' + route[1] + '-' + (page + 1));
+  const knownPages=new Map([[1,location.origin+'/post-'+route[1]+'-1'],[page,location.origin+'/post-'+route[1]+'-'+page]]);
+  let totalPages;
+  for(const anchor of main.querySelectorAll('[aria-label="pagination"] a[href], .pagination a[href], a.pager-next[href], a[rel="last"][href]')) {
+    try {
+      const target=new URL(anchor.getAttribute('href'),location.href),match=target.pathname.match(/^\/post-([1-9]\d*)-([1-9]\d*)\/?$/),number=Number(match?.[2]);
+      if(target.origin!==location.origin||target.username||target.password||match?.[1]!==route[1]||!Number.isSafeInteger(number)||number>100000)continue;
+      knownPages.set(number,location.origin+'/post-'+route[1]+'-'+number);
+      if(anchor.rel.split(/\s+/).includes('last')||/^(?:末页|尾页|最后一页|last(?: page)?)$/i.test(anchor.getAttribute('aria-label')||anchor.title||plain(anchor)))totalPages=number;
+    } catch { /* Ignore unrelated or malformed navigation. */ }
+  }
+  if(totalPages!==undefined&&totalPages<page)totalPages=undefined;
+  const pages=[...knownPages].sort((a,b)=>a[0]-b[0]).map(([number,url])=>({number,url}));
   const rootAuthorId=comments.find(comment=>comment.id==='0'||comment.isAuthor)?.authorId;
   const replyRestriction=[...(title.closest('h1')?.querySelectorAll('span')||[])].map(plain).find(value=>/^(只读|已锁定|禁止回复)$/.test(value));
   return {id:route[1], url:location.origin + location.pathname, title:plain(title), comments,rootAuthorId,replyRestriction,
-    source:'web', page, nextPage:next ? page + 1 : null};
+    source:'web', page, pages,totalPages,nextPage:knownPages.has(page+1) ? page + 1 : null};
 })()`;
 
 export const extractIdentityScript = String.raw`(() => {
@@ -293,23 +317,27 @@ export const extractIdentityScript = String.raw`(() => {
   return {status:'unknown'};
 })()`;
 
+// Legacy inline reader retained for compatibility. Production loads the thread
+// first, then progressively obtains every author's metadata through the service.
 const profileMetadataBody = String.raw`
   if(location.protocol!=='https:' || !['www.nodeseek.com','nodeseek.com'].includes(location.host)) return [];
-  const ids=[...new Set(inputIds)].filter(id=>Number.isSafeInteger(id)&&id>0).slice(0,8);
+  const ids=[...new Set(inputIds)].filter(id=>Number.isSafeInteger(id)&&id>0);
   const rows=[];
-  const integer=value=>value!=null && value!=='' && Number.isSafeInteger(Number(value)) && Number(value)>=0?Number(value):undefined;
+  const integer=value=>(typeof value==='number'||typeof value==='string'&&value.trim()!=='') && Number.isSafeInteger(Number(value)) && Number(value)>=0?Number(value):undefined;
   let cursor=0;
-  await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{
+  await Promise.all(Array.from({length:Math.min(3,ids.length)},async()=>{
     while(cursor<ids.length) {
       const memberId=ids[cursor++];
-      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),1500);
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),10000);
       try {
         const response=await fetch('/api/account/getInfo/'+memberId,{credentials:'same-origin',redirect:'error',cache:'no-store',signal:controller.signal});
         if(!response.ok || response.headers.get('cf-mitigated')==='challenge') continue;
         const result=await response.json().catch(()=>null),detail=result?.detail;
         if(result?.success!==true || Number(detail?.member_id)!==memberId) continue;
         const role=Array.isArray(detail.roles)?detail.roles.map(role=>typeof role?.display_text==='string'?role.display_text.trim():'').filter(Boolean).join(' · '):undefined;
-        rows.push({memberId,level:integer(detail.rank),role:role||undefined,...(typeof detail.followed==='boolean'?{following:detail.followed}:{})});
+        const rank=integer(detail.rank);
+        const level=rank!==undefined?rank:typeof detail.coin==='number'&&Number.isFinite(detail.coin)&&detail.coin>=0?Math.min(6,Math.floor(Math.sqrt(detail.coin)/10)):undefined;
+        rows.push({memberId,level,role:role||undefined,...(typeof detail.followed==='boolean'?{following:detail.followed}:{})});
       } catch { /* Profile metadata is optional; retain the readable thread. */ }
       finally {clearTimeout(timer);}
     }
@@ -317,14 +345,15 @@ const profileMetadataBody = String.raw`
   return rows;
 `;
 
-/** Optional profile metadata, capped to eight members and four concurrent reads. */
+/** Legacy optional metadata reader; processes all members with at most three concurrent reads. */
 export function createProfileMetadataScript(inputIds: number[]): string {
-  const ids=Array.isArray(inputIds)?[...new Set(inputIds)].filter(id=>Number.isSafeInteger(id)&&id>0).slice(0,8):[];
+  const ids=Array.isArray(inputIds)?[...new Set(inputIds)].filter(id=>Number.isSafeInteger(id)&&id>0):[];
   return `(async()=>{const inputIds=${JSON.stringify(ids)};${profileMetadataBody}})()`;
 }
 
-// Same page and the same executeJavaScript call as extraction: the main process
-// can discard the whole result when its account generation changes.
+// Legacy combined export for compatibility. Production must extract the body
+// immediately and load optional profiles separately so slow metadata cannot
+// delay or discard an otherwise readable thread.
 export const extractThreadWithProfilesScript = `(async()=>{
   const thread=${extractThreadScript};
   if(!thread)return thread;

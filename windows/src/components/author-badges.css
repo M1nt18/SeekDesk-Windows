@@ -1,0 +1,11 @@
+.profile-status,.profile-retry{font-size:max(12px,.75rem);color:var(--secondary);white-space:nowrap}
+.profile-retry{border:0;background:transparent;text-decoration:underline;cursor:pointer;padding:0 2px;color:var(--accent)}
+.profile-retry:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.joined-days{font-weight:400}
+.profile-load-status{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-height:24px;font-size:max(12px,.75rem);color:var(--secondary);margin:6px 0}
+.profile-load-status button{font:inherit;color:var(--accent);border:0;background:transparent;cursor:pointer}
+
+.keyword-alerts{position:fixed;right:24px;top:62px;width:min(420px,calc(100vw - 48px));z-index:35;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:var(--shadow);padding:12px}
+.keyword-alerts>header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 4px 8px}
+.keyword-alerts>div{max-height:320px;overflow:auto}
+.keyword-alerts .activity-row{width:100%;text-align:left}

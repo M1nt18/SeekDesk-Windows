@@ -1,0 +1,8 @@
+.account-page .profile-statistics>button {display:flex;flex-direction:column;align-items:flex-start;gap:4px;min-width:64px;padding:7px 10px;border-radius:6px;font-size:max(12px,.76rem);color:var(--muted);text-align:left;}
+.account-page .profile-statistics>button:hover {background:var(--hover);color:var(--accent);}
+.account-page .profile-statistics>button strong {font-size:1.3rem;color:var(--text);}
+.topic-publication-date {display:flex;flex-direction:column;flex-shrink:0;min-width:105px;gap:3px;color:var(--secondary);font-size:max(12px,.76rem);font-variant-numeric:tabular-nums;line-height:1.5;}
+.topic-publication-date small {margin:0;color:var(--muted);font-size:max(12px,.72rem);}
+.publication-time-status {display:flex;align-items:center;gap:8px;margin:8px 0 12px;font-size:max(12px,.76rem);color:var(--muted);}
+.account-page .profile-banner h2 .role-badge {margin-left:5px;vertical-align:middle;}
+@media(max-width:800px) {.account-page .profile-statistics {gap:5px;flex-wrap:wrap;}.topic-publication-date {min-width:91px;}}

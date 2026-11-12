@@ -1,5 +1,6 @@
 import type {ParityAPI} from './parity';
 import type {DesktopAPI} from './desktop';
+import type {UserProfilesAPI} from './profiles';
 export interface Post {
   id: string;
   url: string;
@@ -64,6 +65,8 @@ export interface ThreadResult {
   page: number;
   nextPage: number | null;
   rootAuthorId?: number;
+  pages?: {number:number;url:string}[];
+  totalPages?: number;
   replyRestriction?: string;
 }
 export interface AccountState {
@@ -100,13 +103,14 @@ export interface SavedWorkspace {
   tabs: Post[];
   activeId: string | null;
   overviewOpen?: boolean;
+  listHidden?: boolean;
   scrollPositions?: Record<string,number>;
 }
 export type ForumActionRequest =
   | {kind:'reply';url:string;content:string;quote?:{floor:string;author:string;text:string}}
   | {kind:'react';url:string;commentId:string;reaction:'like'|'dislike'|'chicken';approval?:'quote'|'free'|'paid'}
   | {kind:'follow';memberId:number;follow:boolean}
-  | {kind:'message';memberId:number;content:string};
+  | {kind:'message';memberId:number;content:string;markdown?:boolean};
 export interface ForumActionResult {
   message: string;
   confirmation?: 'free' | 'paid';
@@ -123,7 +127,7 @@ export interface Bootstrap {
   official: OfficialViewState;
   blockedUsers: number[];
 }
-export interface SeekDeskAPI extends ParityAPI,DesktopAPI {
+export interface SeekDeskAPI extends ParityAPI,DesktopAPI,UserProfilesAPI {
   bootstrap(): Promise<Bootstrap>;
   listPosts(request: ListingRequest): Promise<ListingResult>;
   readThread(post: Post, page?: number): Promise<ThreadResult>;

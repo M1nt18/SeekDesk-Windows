@@ -19,6 +19,13 @@ function response(body:unknown,status=200,challenge=false) {
 const reply={kind:'reply',url:'https://www.nodeseek.com/post-123-1',content:'A deliberate test reply'};
 const reaction={kind:'react',url:'https://www.nodeseek.com/post-123-1',commentId:'0',reaction:'like'};
 
+test('private-message mode reaches the official write unchanged and defaults to Markdown for old clients',async()=>{
+  for(const markdown of [true,false,undefined]){
+    const f=fixture();try{await f.run({kind:'message',memberId:8,content:'**content**',...(markdown===undefined?{}:{markdown})});assert.equal(JSON.parse(f.calls[0].options.body as string).markdown,markdown!==false);assert.equal(f.calls.length,1);}finally{f.page.window.close();}
+  }
+  assert.throws(()=>validateActionRequest({kind:'message',memberId:8,content:'text',markdown:'false'}),/格式/);
+});
+
 test('action inputs reject foreign targets, invalid members, unbounded content and malformed floor IDs',()=>{
   assert.throws(()=>createActionScript(reply,0));
   assert.throws(()=>validateActionRequest({...reply,url:'https://evil.test/post-123-1'}));

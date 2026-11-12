@@ -30,7 +30,7 @@ export function validateWorkspace(value: unknown): SavedWorkspace {
   });
   const scrollPositions:Record<string,number>={};
   if(v.scrollPositions&&typeof v.scrollPositions==='object')for(const [id,value] of Object.entries(v.scrollPositions)){if(seen.has(id)&&Number.isFinite(value)&&value>=0&&value<=100000000)scrollPositions[id]=value;}
-  return {tabs, activeId: typeof v.activeId === 'string' && seen.has(v.activeId) ? v.activeId : null,overviewOpen:typeof v.overviewOpen==='boolean'?v.overviewOpen:true,scrollPositions};
+  return {tabs, activeId: typeof v.activeId === 'string' && seen.has(v.activeId) ? v.activeId : null,overviewOpen:typeof v.overviewOpen==='boolean'?v.overviewOpen:true,listHidden:v.listHidden===true,scrollPositions};
 }
 export class Store {
   settings: Settings = {...defaults};
@@ -47,7 +47,7 @@ export class Store {
     } catch { /* First run or corrupt preferences: use safe defaults. */ }
   }
   save() {
-    const snapshot = JSON.stringify({settings:this.settings, workspace:this.settings.restoreTabs ? this.workspace : {tabs:[],activeId:null,overviewOpen:this.workspace.overviewOpen ?? true},blockedUsers:this.blockedUsers}, null, 2);
+    const snapshot = JSON.stringify({settings:this.settings, workspace:this.settings.restoreTabs ? this.workspace : {tabs:[],activeId:null,overviewOpen:this.workspace.overviewOpen ?? true,listHidden:this.workspace.listHidden===true},blockedUsers:this.blockedUsers}, null, 2);
     this.queue = this.queue.catch(() => {}).then(async () => {
       await fs.mkdir(this.directory, {recursive:true});
       const target = path.join(this.directory, 'preferences.json');

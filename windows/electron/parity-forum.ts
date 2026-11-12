@@ -18,6 +18,10 @@ export function validateQueryRequest(input:unknown):ForumQueryRequest{
     case 'notifications':return {kind:row.kind,category:section(row.category,['mentions','replies','messages']) as 'mentions'|'replies'|'messages'};
     case 'conversation':return {kind:row.kind,memberId:positive(row.memberId)};
     case 'space':return {kind:row.kind,memberId:positive(row.memberId),section:section(row.section,['topics','comments','followers','following']) as 'topics'|'comments'|'followers'|'following',page:page(row.page)};
+    case 'publication-dates':{
+      if(!Array.isArray(row.postIds)||row.postIds.length>4)throw new Error('发帖时间读取参数无效');
+      return {kind:row.kind,postIds:[...new Set(row.postIds.map(value=>positive(value,'帖子编号')))]};
+    }
     case 'directory':return {kind:row.kind,memberId:positive(row.memberId),section:section(row.section,['followers','following']) as 'followers'|'following',page:page(row.page)};
     case 'search-users':return {kind:row.kind,term:string(row.term,240,'用户名')};
     case 'search':{
@@ -82,7 +86,8 @@ const common=String.raw`
   };
   const profile=detail=>{
     const id=integer(detail?.member_id);if(!id||!text(detail?.member_name))throw new Error('站点返回的用户资料无效');
-    return {id,name:text(detail.member_name),rank:integer(detail.rank),avatar:location.origin+'/avatar/'+id+'.png',joined:text(detail.created_at_str||detail.created_at),bio:text(detail.bio),topics:integer(detail.nPost),replies:integer(detail.nComment),following:integer(detail.follows),followers:integer(detail.fans),coin:integer(detail.coin),...(typeof detail.followed==='boolean'?{followed:detail.followed}:{})};
+    const roles=Array.isArray(detail.roles)?[...new Set(detail.roles.map(role=>text(role?.display_text)).filter(Boolean))].slice(0,4):[];
+    return {id,name:text(detail.member_name),rank:integer(detail.rank),roles,avatar:location.origin+'/avatar/'+id+'.png',joined:text(detail.created_at_str||detail.created_at),bio:text(detail.bio),topics:integer(detail.nPost),replies:integer(detail.nComment),following:integer(detail.follows),followers:integer(detail.fans),coin:integer(detail.coin),...(typeof detail.followed==='boolean'?{followed:detail.followed}:{})};
   };
   const intro=detail=>({bio:text(detail.bio),signature:text(detail.signature_markdown),readme:text(detail.readme)});
   const floors=integer(window.__config__?.commmentPerPage)||10;
@@ -112,6 +117,23 @@ export function createQueryScript(input:unknown,expectedUid?:number):string{
       const id=request.memberId||owner;if(!id)throw new Error('请先登录');
       const data=await get('/api/account/getInfo/'+id+'?readme=1&signature=1');if(Number(data.detail?.member_id)!==id)throw new Error('用户资料编号不一致');
       return {profile:profile(data.detail),introduction:intro(data.detail)};
+    }
+    if(request.kind==='publication-dates'){
+      const dates=await Promise.all(request.postIds.map(async id=>{
+        const path='/post-'+id+'-1',controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
+        try{
+          const response=await fetch(path,{...options,signal:controller.signal});
+          if(!signedIn())throw new Error('账号会话已变化，请重新登录后操作');
+          if(!response.ok||response.headers.get('cf-mitigated')==='challenge')return null;
+          const url=new URL(response.url);if(url.origin!==location.origin||url.pathname!==path||url.search||url.hash)return null;
+          // An inert template reads the original post date without running its scripts or loading media.
+          const template=document.createElement('template');template.innerHTML=await response.text();
+          const value=template.content.querySelector('.nsk-post-wrapper .content-item[id="0"] > .nsk-content-meta-info .date-created time[datetime]')?.getAttribute('datetime'),timestamp=Date.parse(value||'');
+          return Number.isFinite(timestamp)?[id,new Date(timestamp).toISOString()]:null;
+        }catch{return null;}finally{clearTimeout(timer);}
+      }));
+      if(!signedIn())throw new Error('账号会话已变化，请重新登录后操作');
+      return {publicationDates:Object.fromEntries(dates.filter(Boolean))};
     }
     if(request.kind==='notifications'){
       requireOwner();const paths={mentions:'at-me',replies:'reply-to-me',messages:'message'},data=await get('/api/notification/'+paths[request.category]+'/list');
@@ -149,7 +171,7 @@ export function createQueryScript(input:unknown,expectedUid?:number):string{
       const route=request.section==='topics'?'discussions':'comments',data=await get('/api/content/list-'+route+'?uid='+request.memberId+'&page='+result.page,true),rows=data[route];
       if(!Array.isArray(rows))throw new Error('用户动态格式已变化');
       const escape=value=>text(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
-      return {...result,nextPage:rows.length?result.page+1:null,activity:rows.flatMap(row=>{const id=integer(row.post_id),floor=integer(row.floor_id)||0;if(!id||floor<0)return [];return [{id:id+'-'+floor,title:text(row.title)||'查看回复',url:postUrl(id,floor),date:text(row.created_at),floor,html:escape(row.text)}];})};
+      return {...result,nextPage:rows.length>=15?result.page+1:null,activity:rows.flatMap(row=>{const id=integer(row.post_id),floor=integer(row.floor_id)||0;if(!id||floor<0)return [];return [{id:id+'-'+floor,title:text(row.title)||'查看回复',url:postUrl(id,floor),date:text(row.created_at),floor,html:escape(row.text)}];})};
     }
     if(request.kind==='composer-options'){
       requireOwner();if(location.pathname!=='/new-discussion'||!document.querySelector('#editor'))throw new Error('请等待官方发帖编辑器加载');

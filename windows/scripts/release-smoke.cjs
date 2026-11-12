@@ -10,7 +10,8 @@ const crypto = require('node:crypto');
 const { createReadStream } = require('node:fs');
 
 const project = path.resolve(__dirname, '..');
-const executable = path.resolve(process.argv[2] || path.join(project, 'release-0.1.0-current', 'win-unpacked', 'SeekDesk Windows.exe'));
+const version = require('../package.json').version;
+const executable = path.resolve(process.argv[2] || path.join(project, `release-${version}-current`, 'win-unpacked', 'SeekDesk Windows.exe'));
 const output = path.join(project, 'verification');
 const profile = path.join(project, '.test-data', 'release-runtime-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'));
 const report = {
@@ -161,13 +162,13 @@ async function establishGuest() {
   check('Shipped app-update.yml targets the public M1nt18/SeekDesk-Windows release repository and contains no credential fields', { provider: updateConfiguration.provider, owner: updateConfiguration.owner, repo: updateConfiguration.repo, private: false });
   const runtime = await launch();
   assert.equal(runtime.packaged, true);
-  assert.equal(runtime.version, '0.1.0');
+  assert.equal(runtime.version, version);
   assert.equal(path.normalize(runtime.executable).toLowerCase(), path.normalize(executable).toLowerCase());
   assert.equal(runtime.userData, profile);
   assert.match(runtime.appPath, /resources[\\/]app\.asar$/);
   assert.equal(runtime.devURL, false);
   assert.equal(runtime.runAsNode, false);
-  check('Launched actual packaged 0.1.0 executable with isolated user data', { packaged: true, version: runtime.version, appAsar: true });
+  check(`Launched actual packaged ${version} executable with isolated user data`, { packaged: true, version: runtime.version, appAsar: true });
   const update = await page.evaluate(() => window.seekdesk.getUpdateState());
   assert.equal(update.status, 'unsupported');
   assert.equal(update.installable, false);
@@ -224,9 +225,9 @@ async function establishGuest() {
   check('Fixed HTTPS fixture is recognized as signed out by real account extraction');
   await page.getByTestId('settings-button').click();
   await page.getByRole('button', { name: '关于', exact: true }).click();
-  assert.match(await page.getByTestId('settings-panel').innerText(), /Windows 0\.1\.0/);
-  await capture('release-about-0.1.0.png');
-  check('About UI identifies this build as Windows 0.1.0');
+  assert.ok((await page.getByTestId('settings-panel').innerText()).includes(`Windows ${version}`));
+  await capture(`release-about-${version}.png`);
+  check(`About UI identifies this build as Windows ${version}`);
 
   await page.getByRole('button', { name: '通用', exact: true }).click();
   const closeSelect = page.getByRole('combobox', { name: '关闭主窗口', exact: true });

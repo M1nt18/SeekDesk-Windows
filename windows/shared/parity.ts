@@ -1,9 +1,10 @@
 import type {Post,AccountState,Settings} from './types';
 export interface UnreadCounts {mentions:number;replies:number;messages:number}
-export interface MemberProfile {id:number;name:string;rank?:number;avatar?:string;joined?:string;bio?:string;topics?:number;replies?:number;following?:number;followers?:number;coin?:number;followed?:boolean}
+export interface MemberProfile {id:number;name:string;rank?:number;roles?:string[];avatar?:string;joined?:string;bio?:string;topics?:number;replies?:number;following?:number;followers?:number;coin?:number;followed?:boolean}
 export interface Introduction {bio:string;signature:string;readme:string}
 export interface ForumNotice {id:string;author:string;authorId?:number;title:string;date:string;unread:boolean;postId:number;floor:number;url:string}
 export interface Conversation {id:number;name:string;preview:string;date:string;unread:boolean}
+export interface ConversationContact {id:number;name:string}
 export interface PrivateMessage {id:string;text:string;date:string;mine:boolean;markdown:boolean;peerName?:string}
 export interface Activity {id:string;title:string;url:string;date:string;html?:string;floor?:number}
 export interface ComposerOptions {categories:{id:string;title:string}[];ranks:{value:number;title:string}[];defaultCategory?:string;canPost:boolean}
@@ -12,12 +13,13 @@ export type ForumQueryRequest=
  |{kind:'account'}|{kind:'notifications';category:'mentions'|'replies'|'messages'}
  |{kind:'conversation';memberId:number}|{kind:'introduction';memberId?:number}
  |{kind:'space';memberId:number;section:'topics'|'comments'|'followers'|'following';page?:number}
+ |{kind:'publication-dates';postIds:number[]}
  |{kind:'directory';memberId:number;section:'followers'|'following';page?:number}
  |{kind:'search-users';term:string}|{kind:'search';term:string;categories?:string[];page?:number}
  |{kind:'composer-options'}|{kind:'edit-source';url:string;floor:string}
  |{kind:'attendance-status'}|{kind:'stickers'};
 export interface AttendanceResult {kind:'completed'|'alreadyCompleted'|'signedOut'|'verification'|'failed'|'ready';gain?:number;current?:number;date?:string;message?:string}
-export interface ForumQueryResult {profile?:MemberProfile;unread?:UnreadCounts;notices?:ForumNotice[];conversations?:Conversation[];messages?:PrivateMessage[];posts?:Post[];activity?:Activity[];users?:MemberProfile[];introduction?:Introduction;options?:ComposerOptions;edit?:EditableSource;attendance?:AttendanceResult;stickers?:StickerItem[];page?:number;nextPage?:number|null}
+export interface ForumQueryResult {profile?:MemberProfile;unread?:UnreadCounts;notices?:ForumNotice[];conversations?:Conversation[];messages?:PrivateMessage[];posts?:Post[];activity?:Activity[];publicationDates?:Record<number,string>;users?:MemberProfile[];introduction?:Introduction;options?:ComposerOptions;edit?:EditableSource;attendance?:AttendanceResult;stickers?:StickerItem[];page?:number;nextPage?:number|null}
 export type ForumWriteRequest=
  |{kind:'new-topic';title:string;content:string;category:string;rank:number;confirmed?:boolean}
  |{kind:'edit';url:string;floor:string;content:string;title?:string;category?:string;rank?:number}
@@ -25,7 +27,7 @@ export type ForumWriteRequest=
  |{kind:'mark-read';category:'mentions'|'replies'|'messages';id:number}
  |{kind:'attendance';mode:'fixed'|'random'};
 export interface ForumWriteResult {message:string;url?:string;postId?:number;floor?:number;confirmation?:string;introduction?:Introduction;attendance?:AttendanceResult}
-export interface DraftValue {content:string;title?:string;category?:string;rank?:number;imageWidths?:Record<string,number>;updatedAt?:string}
+export interface DraftValue {content:string;title?:string;category?:string;rank?:number;imageWidths?:Record<string,number>;markdown?:boolean;updatedAt?:string}
 export interface ImageUploadInput {name:string;mime:string;bytes:number[]|Uint8Array;width?:number}
 export interface UploadedImage {url:string;width?:number;height?:number}
 export interface ReaderImage {data:string;width:number;height:number;originalWidth:number;originalHeight:number;reduced:boolean}
@@ -61,6 +63,8 @@ export interface ParitySettings {
 }
 export interface ParityBootstrap {extensions:ExtensionsState;appearance:ParitySettings;media:MediaSettings;stickers:StickerItem[];searchHistory:SearchHistory[]}
 export interface ParityAPI {
+ readConversationContacts(owner?:number):Promise<ConversationContact[]>;
+ rememberConversationContact(contact:ConversationContact,owner:number):Promise<ConversationContact[]>;
  openCalculator():Promise<void>;
  queryForum(request:ForumQueryRequest):Promise<ForumQueryResult>;
  writeForum(request:ForumWriteRequest,expectedOwner:number):Promise<ForumWriteResult>;

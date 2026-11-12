@@ -32,7 +32,7 @@ test('queued saves restore the last workspace, and disabling restore removes per
     assert.deepEqual(restored.workspace.scrollPositions,{'42':180});
     store.settings={...store.settings,restoreTabs:false};await store.save();
     const withoutTabs=new Store(directory);await withoutTabs.load();
-    assert.deepEqual(withoutTabs.workspace,{tabs:[],activeId:null,overviewOpen:true,scrollPositions:{}});
+    assert.deepEqual(withoutTabs.workspace,{tabs:[],activeId:null,overviewOpen:true,listHidden:false,scrollPositions:{}});
     await fs.writeFile(path.join(directory,'preferences.json'),'corrupt');
     const recovered=new Store(directory);await recovered.load();
     assert.deepEqual(recovered.settings,defaults);
@@ -56,4 +56,9 @@ test('new global font settings migrate old preferences and preserve overview and
     assert.equal(restored.workspace.overviewOpen,false);assert.deepEqual(restored.blockedUsers,[42,77]);
     assert.equal(restored.settings.theme,'dark');assert.equal(restored.settings.fontSize,24);
   }finally{await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('reading layout remains remembered even when tab restoration is disabled',async()=>{
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-layout-'));
+  try {const original=new Store(directory);original.settings={...defaults,restoreTabs:false};original.workspace={tabs:[],activeId:null,listHidden:true};await original.save();const restored=new Store(directory);await restored.load();assert.equal(restored.workspace.listHidden,true);assert.deepEqual(restored.workspace.tabs,[]);assert.equal(validateWorkspace({tabs:[],activeId:null,listHidden:'bad'}).listHidden,false);}finally{await fs.rm(directory,{recursive:true,force:true});}
 });

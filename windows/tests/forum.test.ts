@@ -66,6 +66,20 @@ test('content allowlist retains reading markup while stripping active HTML and d
 function dom(html: string, url = 'https://www.nodeseek.com/') {
   return new JSDOM(html, {url, runScripts:'outside-only'});
 }
+const rootFixture='<div class="nsk-post-wrapper"><h1><a class="post-title-link">Thread</a></h1><div class="content-item" id="0"><div class="nsk-content-meta-info"><a class="author-name" href="/space/42">Owner</a></div><article class="post-content"><p>Root body</p></article></div></div>';
+
+test('real page links retain direct first and last navigation without accepting other threads or hosts',()=>{
+  const page=dom(`<div id="nsk-body-left">${rootFixture}<nav class="pagination"><a href="/post-123-1">1</a><a href="/post-123-2">2</a><a href="/post-123-4" rel="last">4</a><a href="/post-999-5">5</a><a href="https://evil.test/post-123-6">6</a></nav></div>`,'https://www.nodeseek.com/post-123-3');
+  try {const result=page.window.eval(extractThreadScript);assert.deepEqual(Array.from(result.pages,(link:any)=>link.number),[1,2,3,4]);assert.equal(result.nextPage,4);assert.equal(result.totalPages,4);}finally{page.window.close();}
+  const unknown=dom(`<div id="nsk-body-left">${rootFixture}<nav class="pagination"><a href="/post-123-4">4</a></nav></div>`,'https://www.nodeseek.com/post-123-3');
+  try {assert.equal(unknown.window.eval(extractThreadScript).totalPages,undefined);}finally{unknown.window.close();}
+});
+
+test('ordinary HTTP links survive extraction and sanitization while active URLs and insecure images do not',()=>{
+  const body='<a href="http://example.com/path">Public link</a><a href="javascript:alert(1)">Bad</a><img src="http://example.com/image.png">';
+  const page=dom(`<div id="nsk-body-left">${rootFixture.replace('<p>Root body</p>',body)}</div>`,'https://www.nodeseek.com/post-123-1');
+  try {const html=sanitizeContent(page.window.eval(extractThreadScript).comments[0].html);assert.match(html,/href="http:\/\/example.com\/path"/);assert.doesNotMatch(html,/javascript:|<img/);}finally{page.window.close();}
+});
 
 test('list extraction preserves board, author and locked reading level with pagination', () => {
   const page = dom(`<div id="nsk-body-left"><ul class="post-list"><li class="post-list-item">
@@ -144,14 +158,41 @@ test('thread metadata exposes real author IDs, levels, roles, signatures and rea
   }finally{page.window.close();}
 });
 
+test('thread metadata reads compound level labels without treating them as roles and prioritizes explicit ranks',()=>{
+  const floor=(id:number,label:string,rank='')=>`<li class="content-item" id="${id}"><div class="nsk-content-meta-info"><div class="author-info"><a class="author-name" href="/space/${100+id}">Reader</a><span class="role-tag" ${rank}>${label}</span><span class="role-tag">公开称号</span></div></div><article class="post-content">Reply</article></li>`;
+  const page=dom(`<div id="nsk-body-left">${rootFixture}<ul class="comments">${floor(1,'Lv2|36天')}${floor(2,'Lv. 3 ｜ 120天')}${floor(3,'Lv 1','data-rank="7"')}${floor(4,'Lv 2','data-rank="invalid"')}${floor(5,'等级 0 · 新人')}</ul></div>`,'https://www.nodeseek.com/post-123-1');
+  (page.window as any).__config__={postData:{postId:123,comments:[{floorIndex:3,rank:6},{floorIndex:4,rank:4}]}};
+  try {
+    const comments=page.window.eval(extractThreadScript).comments.slice(1);
+    assert.deepEqual(Array.from(comments,(comment:any)=>comment.level),[2,3,7,4,0]);
+    assert.ok(comments.every((comment:any)=>comment.role==='公开称号'));
+  }finally{page.window.close();}
+});
+
+test('thread authors support official absolute and parameterized links and safe real poster fallbacks',()=>{
+  const floor=(id:number,href?:string,name='',extra='')=>`<li class="content-item" id="${id}"><div class="nsk-content-meta-info"><div class="author-info"><a class="author-name" ${href?`href="${href}"`:''}>${name}</a>${extra}</div></div><article class="post-content">Reply</article></li>`;
+  const page=dom(`<div id="nsk-body-left">${rootFixture}<ul class="comments">${floor(1,'https://nodeseek.com/space/101/?view=posts#recent','Absolute Author')}${floor(2,'/space/102?view=posts#recent','Relative Author')}${floor(3,'https://foreign.test/space/999','DOM Author')}${floor(4,'https://www.nodeseek.com.foreign.test/space/888','Foreign Author')}${floor(5)}${floor(6,'https://user:password@www.nodeseek.com/space/777','Credential Author')}${floor(7,'/space/9007199254740992','Unsafe ID')}</ul></div>`,'https://www.nodeseek.com/post-123-1');
+  (page.window as any).__config__={postData:{postId:123,comments:[
+    {floorIndex:1,poster:{uid:901,name:'Configured Author'}},
+    {floorIndex:3,poster:{uid:103,name:'Configured Author',avatar:'/avatar/custom-103.png',roles:[{display_text:'公开称号',name:'internal-role'}]}},
+    {floorIndex:5,poster:{uid:105,name:'Poster Author',avatar:'/avatar/custom-105.png',isOp:true,isMe:true,roles:[{display_text:'',name:'公开角色'}],info:'Lv 9',profile:'/space/105'}},
+  ]}};
+  try {
+    const comments=page.window.eval(extractThreadScript).comments.slice(1);
+    assert.deepEqual(Array.from(comments,(comment:any)=>comment.authorId),[101,102,103,undefined,105,undefined,undefined]);
+    assert.equal(comments[0].author,'Absolute Author');assert.equal(comments[2].author,'DOM Author');
+    assert.equal(comments[2].avatar,'https://www.nodeseek.com/avatar/custom-103.png');assert.equal(comments[2].role,'公开称号');
+    assert.equal(comments[4].author,'Poster Author');assert.equal(comments[4].avatar,'https://www.nodeseek.com/avatar/custom-105.png');assert.equal(comments[4].role,'公开角色');assert.equal(comments[4].isAuthor,true);assert.equal(comments[4].isOwn,true);
+    assert.ok(comments.every((comment:any)=>comment.level===undefined));
+  }finally{page.window.close();}
+});
+
 // Official public post-893437-1 exposes .comments > li.content-item for hot
 // floors 42/13/43, with .nsk-content-meta-info .floor-link-wrapper > .hot-badge.
 // Its single postData.comments array contains hot/pined/floorIndex/commentId.
 function realShapedFloor(floor:number,options:{hot?:boolean;body?:string;chicken?:number;likes?:number}={}) {
   return `<li data-comment-id="${12000000+floor}" id="${floor}" class="content-item"><div class="nsk-content-meta-info"><div class="avatar-wrapper"><a href="/space/77"><img src="/avatar/77.png" class="avatar-normal"></a></div><div><div class="author-info"><a href="/space/77" class="author-name">Fixture Reader</a></div><div class="content-info"><span class="date-created"><time datetime="2026-11-11T00:00:00Z">Now</time></span></div></div><div class="floor-link-wrapper">${options.hot?'<div class="hot-badge"></div>':''}<a href="#${floor}" class="floor-link">#${floor}</a></div></div><article class="post-content"><p>${options.body||'Reply '+floor}</p></article><div class="comment-menu"><div title="点赞" class="menu-item"><span>${options.likes??0}</span></div><div title="加鸡腿" class="menu-item"><span>${options.chicken??0}</span></div></div></li>`;
 }
-const rootFixture='<div class="nsk-post-wrapper"><h1><a class="post-title-link">Thread</a></h1><div class="content-item" id="0"><div class="nsk-content-meta-info"><a class="author-name" href="/space/42">Owner</a></div><article class="post-content"><p>Root body</p></article></div></div>';
-
 test('official hot floors outside the current page retain true floors, chicken counts and original page links without duplicate copies',()=>{
   const page=dom(`<div id="nsk-body-left">${rootFixture}<ul class="comments">${realShapedFloor(42,{hot:true,chicken:8,likes:99,body:'Hot off-page reply'})}${realShapedFloor(1,{chicken:2})}${realShapedFloor(42,{body:'Normal duplicate'})}</ul><div class="pagination"><a href="/post-123-2">2</a></div></div>`,'https://www.nodeseek.com/post-123-1');
   (page.window as any).__config__={commmentPerPage:10,postData:{postId:123,comments:[{floorIndex:0,hot:true},{floorIndex:42,commentId:12000042,hot:true,pined:false,likeCount:8,upvoteCount:99},{floorIndex:1,hot:false,likeCount:2}]}};
@@ -189,7 +230,7 @@ test('off-page hot floors with unknown page size omit guessed action URLs while 
   try{const result=page.window.eval(extractThreadScript);assert.equal(result.comments[1].isHot,true);assert.equal(result.comments[1].sourcePage,undefined);assert.equal(result.comments[1].actionUrl,undefined);assert.equal(result.comments[2].sourcePage,3);assert.equal(result.comments[2].actionUrl,'https://www.nodeseek.com/post-123-3#101');}finally{page.window.close();}
 });
 
-test('optional profile reads cap eight members and four concurrent requests, without inventing missing levels',async()=>{
+test('legacy optional profile reads every member with at most three concurrent requests, without inventing missing levels',async()=>{
   const page=dom('<div/>');let active=0,maxActive=0;const calls:string[]=[];
   (page.window as any).AbortController=AbortController;
   (page.window as any).fetch=async(url:string,options:RequestInit)=>{
@@ -200,8 +241,23 @@ test('optional profile reads cap eight members and four concurrent requests, wit
   };
   try {
     const result=await page.window.eval(createProfileMetadataScript(Array.from({length:12},(_,i)=>i+1)));
-    assert.equal(result.length,8);assert.equal(calls.length,8);assert.equal(maxActive,4);assert.equal(result.find((row:{memberId:number})=>row.memberId===1).level,undefined);
+    assert.equal(result.length,12);assert.equal(calls.length,12);assert.equal(maxActive,3);assert.equal(result.find((row:{memberId:number})=>row.memberId===1).level,undefined);
     assert.equal(result[0].role,'公开称号');assert.equal(result[0].following,true);
+  }finally{page.window.close();}
+});
+
+test('legacy profile levels prefer valid rank and only calculate Pro levels from real finite nonnegative coins',async()=>{
+  const page=dom('<div/>');
+  const details=[{rank:0,coin:10000},{rank:8,coin:0},{rank:null,coin:400},{coin:0},{coin:1000000},{},{coin:null},{coin:-1},{coin:'400'},{rank:false},{rank:' ',coin:900},{coin:Infinity},{coin:NaN}];
+  (page.window as any).AbortController=AbortController;
+  (page.window as any).fetch=async(url:string)=>{
+    const id=Number(url.split('/').pop());
+    return {ok:true,headers:{get:()=>null},json:async()=>({success:true,detail:{member_id:id,...details[id-1]}})};
+  };
+  try {
+    const result=await page.window.eval(createProfileMetadataScript(details.map((_,i)=>i+1)));
+    const levels=new Map<number,number|undefined>(result.map((row:{memberId:number;level?:number})=>[row.memberId,row.level]));
+    assert.deepEqual(details.map((_,i)=>levels.get(i+1)),[0,8,2,0,6,undefined,undefined,undefined,undefined,undefined,3,undefined,undefined]);
   }finally{page.window.close();}
 });
 

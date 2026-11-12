@@ -3,7 +3,8 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import type { AccountState, ListingRequest, ListingResult, Post, ThreadResult, OfficialViewBounds, OfficialViewState, ForumActionRequest, ForumActionResult } from '../shared/types';
-import { FORUM_ORIGIN, RSS_URL, isOfficialUrl, normalizePostUrl, listingUrl, parseRss, sanitizeContent, extractListingScript, extractThreadWithProfilesScript, extractIdentityScript, captureTerminalsScript } from './forum';
+import { FORUM_ORIGIN, RSS_URL, isOfficialUrl, normalizePostUrl, listingUrl, parseRss, sanitizeContent, extractListingScript, extractThreadScript, extractIdentityScript, captureTerminalsScript } from './forum';
+import {MemberProfilesService,createUserProfileScript,type ProfileFetchResult} from './member-profiles';
 import {createActionScript,validateActionRequest} from './interactions';
 import { Store, validateSettings, validateWorkspace, validateBlockedUsers } from './store';
 import {UserscriptHost} from './userscripts';
@@ -31,6 +32,9 @@ let officialState: OfficialViewState = {visible:false,url:'',loading:false,purpo
 let officialPoll: ReturnType<typeof setInterval> | undefined;
 let officialInspectionPending = false;
 let readerWindow: BrowserWindow | null = null;
+let profileWindow: BrowserWindow | null = null;
+let profileReady: Promise<BrowserWindow> | null = null;
+const memberProfiles = new MemberProfilesService(fetchUserProfile);
 let forumSession: Session;
 let publicSession: Session;
 let store: Store;
@@ -63,6 +67,7 @@ function setAccount(value: AccountState) {
   if (identity !== undefined) {
     if (confirmedIdentity !== identity && (confirmedIdentity !== undefined || value.status === 'signed-in')) {
       generation++;
+      resetProfileScope();
       verificationUntil = 0;
       const previousReader = readerWindow;
       readerWindow = null;
@@ -87,7 +92,7 @@ function openNativePost(url:string){
   if(!officialState.visible||officialState.purpose!=='browse')return false;
   try{const normalized=normalizePostUrl(url),id=new URL(normalized).pathname.match(/^\/post-(\d+)-/)![1];closeOfficial();mainWindow?.webContents.send('app:open-post',{id,url:normalized,title:'帖子 #'+id,author:'',category:'',published:'',summary:''} satisfies Post);return true;}catch{return false;}
 }
-function secureRemote(contents: WebContents, isOfficialView = false) {
+function secureRemote(contents: WebContents, isOfficialView = false, background = false) {
   if (isOfficialView) contents.on('before-input-event',(event,input)=>{
     if(input.type==='keyDown' && (input.control || input.meta) && input.key.toLowerCase()==='w') {
       event.preventDefault();
@@ -95,6 +100,7 @@ function secureRemote(contents: WebContents, isOfficialView = false) {
     }
   });
   contents.setWindowOpenHandler(({url}) => {
+    if(background)return {action:'deny'};
     if (isOfficialUrl(url)) {
       if(isOfficialView&&openNativePost(url))return {action:'deny'};
       // Login redirects and site popups stay in the original view, preserving
@@ -109,7 +115,7 @@ function secureRemote(contents: WebContents, isOfficialView = false) {
     if(isOfficialView&&isOfficialUrl(url)&&openNativePost(url)){event.preventDefault();return;}
     if (!isOfficialUrl(url)) {
       event.preventDefault();
-      try { void shell.openExternal(safeHttp(url)); } catch { /* Disallow non-web schemes. */ }
+      if(!background)try { void shell.openExternal(safeHttp(url)); } catch { /* Disallow non-web schemes. */ }
     }
   });
   contents.on('will-redirect', (event,url,isInPlace,isMainFrame) => {
@@ -256,6 +262,47 @@ async function bounded<T>(promise: Promise<T>, ms: number, message='官网读取
   try { return await Promise.race([promise,new Promise<never>((_,reject) => {timer=setTimeout(() => reject(new Error(message)),ms);})]); }
   finally { clearTimeout(timer); }
 }
+function resetProfileScope() {
+  memberProfiles.resetScope(generation);
+  const previous=profileWindow;profileWindow=null;profileReady=null;
+  previous?.destroy();
+}
+function getProfileWindow(version:number):Promise<BrowserWindow> {
+  if(profileReady&&profileWindow&&!profileWindow.isDestroyed())return profileReady;
+  const win=new BrowserWindow({show:false,width:900,height:700,webPreferences:remoteOptions()});
+  profileWindow=win;
+  win.on('closed',()=>{if(profileWindow===win){profileWindow=null;profileReady=null;}});
+  secureRemote(win.webContents,false,true);
+  const ready=(async()=>{
+    try {
+      const readerUrl=readerWindow&&!readerWindow.isDestroyed()?readerWindow.webContents.getURL():'';
+      const seedUrl=isOfficialUrl(readerUrl)?readerUrl.split('#')[0]:FORUM_ORIGIN+'/';
+      await bounded(win.loadURL(seedUrl,{extraHeaders:'Cache-Control: no-cache\r\n'}),16000);
+      if(version!==generation||win!==profileWindow)throw new Error('会话已变更');
+      if(!isOfficialUrl(win.webContents.getURL()))throw new Error('资料页面不可用');
+      return win;
+    } catch(error) {
+      if(win===profileWindow){profileWindow=null;profileReady=null;}
+      if(!win.isDestroyed())win.destroy();
+      throw error;
+    }
+  })();
+  profileReady=ready;
+  return ready;
+}
+async function fetchUserProfile(memberId:number,signal:AbortSignal):Promise<ProfileFetchResult> {
+  const version=generation,owner=account.status==='signed-in'?account.id:undefined;
+  try {
+    const win=await getProfileWindow(version);
+    if(signal.aborted||version!==generation)return {ok:false,reason:'session-changed'};
+    const result=await bounded(win.webContents.executeJavaScript(createUserProfileScript(memberId,owner)),12500) as ProfileFetchResult;
+    if(signal.aborted||version!==generation)return {ok:false,reason:'session-changed'};
+    return result;
+  } catch(error) {
+    if(signal.aborted||version!==generation)return {ok:false,reason:'session-changed'};
+    return {ok:false,reason:error instanceof Error&&/超时/.test(error.message)?'timeout':'network'};
+  }
+}
 function onWebsite<T>(url: string, script: string, options: {timeout?:number;action?:boolean;reuse?:boolean}={}): Promise<T> {
   const version = generation;
   const task = websiteQueue.catch(() => {}).then(async () => {
@@ -367,7 +414,7 @@ async function readThread(input: Post, requestedPage?: number): Promise<ThreadRe
   const version = generation;
   if (store.settings.defaultSource === 'auto') {
     try {
-      const result = await onWebsite<ThreadResult>(url,extractThreadWithProfilesScript);
+      const result = await onWebsite<ThreadResult>(url,extractThreadScript);
       return {...result,id,url,source:'web',comments:result.comments.map(c => ({...c,html:sanitizeContent(c.html),signatureHtml:c.signatureHtml?sanitizeContent(c.signatureHtml):undefined}))};
     } catch {
       if (version !== generation) throw new Error('会话已变更，请重新读取');
@@ -392,6 +439,7 @@ async function forumAction(input: ForumActionRequest): Promise<ForumActionResult
   try {
     const result=await onWebsite<ForumActionResult>(url,createActionScript(request,userId),{timeout:35000,action:true});
     if(version!==generation || account.status!=='signed-in' || account.id!==userId)throw new Error('账号已变化，操作状态需在官方页面核对');
+    if(request.kind==='follow')memberProfiles.updateFollowing(request.memberId,request.follow);
     return result;
   } finally {actionPending=false;}
 }
@@ -438,6 +486,8 @@ function registerIPC() {
   handle('parity:history',async(value:unknown)=>{features.history=validateHistory(value);await features.save();});
   handle('parity:draft-load',(key:string,owner?:number)=>features.loadDraft(account.status==='signed-in'&&account.id===owner?owner:undefined,key));
   handle('parity:draft-save',(key:string,value:unknown,owner?:number)=>{if(account.status!=='signed-in'||!owner||account.id!==owner)throw new Error('草稿所属账号已变化，未保存到其他账号');return features.saveDraft(owner,key,value);});
+  handle('parity:contacts-read',(owner?:number)=>{assertOwner(owner);return features.readConversationContacts(account.id);});
+  handle('parity:contacts-remember',(contact,owner?:number)=>{assertOwner(owner);return features.rememberConversationContact(account.id,contact);});
   handle('media:upload',(input)=>media.upload(input));
   handle('media:prepare',(content,widths)=>media.prepare(content,widths));
   handle('media:image-save',(url)=>media.saveImage(url));
@@ -458,9 +508,10 @@ function registerIPC() {
   handle('extensions:boss-toggle',()=>toggleBoss());
   handle('app:clipboard',(value:unknown)=>{if(typeof value!=='string'||value.length>2000000)throw new Error('复制文本无效');return clipboard.writeText(value);});
   handle('app:updates',()=>updater.check());
-  handle('app:bootstrap', () => ({settings:store.settings,workspace:store.settings.restoreTabs ? store.workspace : {tabs:[],activeId:null,overviewOpen:store.workspace.overviewOpen ?? true},account,version:app.getVersion(),buildNumber,official:officialState,blockedUsers:store.blockedUsers}));
+  handle('app:bootstrap', () => ({settings:store.settings,workspace:store.settings.restoreTabs ? store.workspace : {tabs:[],activeId:null,overviewOpen:store.workspace.overviewOpen ?? true,listHidden:store.workspace.listHidden===true},account,version:app.getVersion(),buildNumber,official:officialState,blockedUsers:store.blockedUsers}));
   handle('forum:list', (request: ListingRequest) => listPosts(request || {}));
   handle('forum:thread', readThread);
+  handle('forum:profiles',request=>memberProfiles.read(request));
   handle('forum:action',(request,owner)=>{assertOwner(owner);return forumAction(request);});
   handle('forum:avatar',loadAvatar);
   handle('app:blocked-users',async(input:unknown)=>{store.blockedUsers=validateBlockedUsers(input);await store.save();return store.blockedUsers;});
@@ -483,6 +534,7 @@ function registerIPC() {
   });
   handle('forum:clear', async () => {
     generation++;
+    resetProfileScope();
     destroyOfficial(); readerWindow?.destroy();
     readerWindow=null;
     await forumSession.clearStorageData();
@@ -568,4 +620,4 @@ else {
   }).catch(error => {console.error('SeekDesk startup failed:',error);app.quit();});
 }
 app.on('window-all-closed',() => app.quit());
-app.on('will-quit',()=>{extensions?.dispose();updater?.dispose();desktopWindow?.dispose();globalShortcut.unregisterAll();});
+app.on('will-quit',()=>{memberProfiles.dispose();profileWindow?.destroy();extensions?.dispose();updater?.dispose();desktopWindow?.dispose();globalShortcut.unregisterAll();});
