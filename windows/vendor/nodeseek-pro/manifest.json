@@ -1,0 +1,65 @@
+{
+  "name": "Nodeseek Pro",
+  "version": "1.0.8",
+  "author": "Woodll",
+  "source": "https://greasyfork.org/scripts/567109-nodeseek-pro",
+  "license": "GPL-3.0-only",
+  "files": [
+    {
+      "name": "nodeseek-pro.user.js",
+      "source": "https://update.greasyfork.org/scripts/567109/Nodeseek%20Pro.user.js",
+      "license": "GPL-3.0-only",
+      "bytes": 290303,
+      "sha256": "8bfcf42dc9d85d9bdd60bf6a4d37ff428f0d00acea3564b93b00742304fae10e"
+    },
+    {
+      "name": "layui.js",
+      "source": "https://cdn.jsdelivr.net/npm/layui@2.10.3/dist/layui.js",
+      "license": "MIT",
+      "bytes": 373630,
+      "sha256": "d4e6a782b488f7310b0c33cd2ddaa2d5144d52707f78cd31b8a98883ce006786"
+    },
+    {
+      "name": "layui.css",
+      "source": "https://cdn.jsdelivr.net/npm/layui@2.10.3/dist/css/layui.css",
+      "license": "MIT",
+      "bytes": 130067,
+      "sha256": "e391c61db741ca8367a3001b6ced5576a7bd7dae412b007a20b96c92c73336c0"
+    },
+    {
+      "name": "layui-icon.woff2",
+      "source": "https://cdn.jsdelivr.net/npm/layui@2.10.3/dist/font/iconfont.woff2",
+      "license": "MIT",
+      "bytes": 30004,
+      "sha256": "6fd5d8e2b0efe73d02897f788c4b0c5ed6327cd310a04463564a19121e3f8dca"
+    },
+    {
+      "name": "layui-dark.css",
+      "source": "SeekDesk local compatibility CSS",
+      "license": "GPL-3.0-only",
+      "bytes": 651,
+      "sha256": "cc0817daf95680b1f8dd2e13caf0360546f709e14a429253eb1552eed28e6308"
+    },
+    {
+      "name": "highlight.js",
+      "source": "https://s4.zstatic.net/ajax/libs/highlight.js/11.9.0/highlight.min.js",
+      "license": "BSD-3-Clause",
+      "bytes": 121727,
+      "sha256": "837a6fa5b0c736b52bbde2b2b6190f305da3fc9ed41681db5321507057b5c846"
+    },
+    {
+      "name": "highlight-light.css",
+      "source": "https://s4.zstatic.net/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css",
+      "license": "BSD-3-Clause",
+      "bytes": 856,
+      "sha256": "593ee2475d42ac9ae701a177a353825bd661b6249fa1ad4bad232540825e9e83"
+    },
+    {
+      "name": "highlight-dark.css",
+      "source": "https://s4.zstatic.net/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css",
+      "license": "BSD-3-Clause",
+      "bytes": 856,
+      "sha256": "4237ffca7ce6aadb438c457e0a675b125c534bbdda5b87f41f3a1495603bcc9b"
+    }
+  ]
+}

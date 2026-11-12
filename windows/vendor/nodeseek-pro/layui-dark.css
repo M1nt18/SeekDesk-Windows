@@ -1,0 +1,5 @@
+/* SeekDesk compatibility theme. GPL-3.0-only; no runtime third-party CSS fetch. */
+html.dark .layui-layer,html.dark .layui-layer-title,html.dark .layui-layer-content,html.dark .layui-layer-btn{background:#20252f;color:#e4e8f0;border-color:#444d60}
+html.dark .layui-input,html.dark .layui-select,html.dark .layui-textarea,html.dark .layui-form-select dl{background:#171c25;color:#e4e8f0;border-color:#566076}
+html.dark .layui-form-label,html.dark .layui-form-radio,html.dark .layui-form-radio div,html.dark .layui-table{color:#e4e8f0}
+html.dark .layui-table,html.dark .layui-table td,html.dark .layui-table th{background:#20252f;border-color:#444d60}
