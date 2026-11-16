@@ -216,7 +216,7 @@ export class UpdaterService {
       const restored:Receipt={...receipt,phase:'downloaded'};
       if(receipt.phase==='installing'){await this.saveReceipt(restored);this.assertActive();}
       this.receipt=restored;
-      this.emit({status:'downloaded',version:receipt.version,manualOnly:false,errorCode:undefined,progress:undefined,installable:true,releaseUrl:UPDATE_REPOSITORY+'/releases/tag/v'+receipt.version,message:'已恢复并重新校验待安装包，点击安装并重启'});
+      this.emit({status:'downloaded',version:receipt.version,manualOnly:false,errorCode:undefined,progress:undefined,installable:true,releaseUrl:UPDATE_REPOSITORY+'/releases/tag/v'+receipt.version,message:'已恢复并重新校验待安装包，点击重启更新'});
     }catch(error){
       if(this.disposed)return;
       this.receipt=undefined;await this.clearPending().catch(()=>{});
@@ -305,7 +305,7 @@ export class UpdaterService {
       if(this.token!.cancelled)throw Object.assign(new Error('cancelled'),{code:'CANCELLED'});
       const receipt:Receipt={version:info.version,...expected,phase:'downloaded',at:this.now()};await this.saveReceipt(receipt);assertDownloadAllowed();
       this.receipt=receipt;
-      this.emit({status:'downloaded',installable:true,message:'安装包已通过 SHA-512 校验，点击安装并重启',progress:undefined});
+      this.emit({status:'downloaded',installable:true,message:'安装包已通过 SHA-512 校验，点击重启更新',progress:undefined});
     }catch(error){
       const cancelled=this.token?.cancelled||errorCode(error)==='CANCELLED';
       // Wait until the native download settles before removing partial files.
@@ -324,7 +324,7 @@ export class UpdaterService {
       if(!allowed())return this.getState();
       const downloaded=this.state.status==='downloaded'?this.getState():await this.download();
       if(!allowed()){
-        if(!this.disposed&&downloaded.status==='downloaded')this.emit({message:'已取消自动安装，已校验的更新包已保留'});
+        if(!this.disposed&&downloaded.status==='downloaded')this.emit({message:'已取消自动更新，已校验的更新包已保留'});
         return this.getState();
       }
       if(downloaded.status!=='downloaded')return this.getState();
@@ -363,13 +363,15 @@ export class UpdaterService {
       if(actual!==receipt.sha512)throw Object.assign(new Error('校验失败'),{code:'ERR_UPDATER_CHECKSUM_MISMATCH'});
       const installing:Receipt={...receipt,phase:'installing',at:this.now()};await this.saveReceipt(installing);assertAllowed();
       this.receipt=installing;
-      this.installing=true;this.emit({status:'installing',message:'正在安装更新，完成后自动重启',errorCode:undefined});
-      this.assertActive();native.quitAndInstall(false,true);
+      this.installing=true;this.emit({status:'installing',message:'正在后台更新，完成后自动打开新版',errorCode:undefined});
+      // Let the updater replace the registered installation after exit, then
+      // reopen the app. Normal updates must not display an installer window.
+      this.assertActive();native.quitAndInstall(true,true);
     }catch(error){
       this.installing=false;
       if(this.disposed)return this.getState();
       if(verificationError(error)){this.receipt=undefined;await this.clearPending().catch(()=>{});this.emit({status:'error',errorCode:'verification',message:'安装包校验失败，已删除，请重新下载'});}
-      else {this.receipt=receipt;await this.saveReceipt(receipt).catch(()=>{});if(!this.disposed){native.resetAfterInstallError?.();this.emit({status:'downloaded',errorCode:errorCode(error)==='CANCELLED'?undefined:preparing?'prepare':'install',message:errorCode(error)==='CANCELLED'?'已取消自动安装，已校验的更新包已保留':preparing?'当前编辑内容未能保存，更新尚未安装，请稍后重试':'无法启动安装程序，请重试安装'});}}
+      else {this.receipt=receipt;await this.saveReceipt(receipt).catch(()=>{});if(!this.disposed){native.resetAfterInstallError?.();this.emit({status:'downloaded',errorCode:errorCode(error)==='CANCELLED'?undefined:preparing?'prepare':'install',message:errorCode(error)==='CANCELLED'?'已取消自动更新，已校验的更新包已保留':preparing?'当前编辑内容未能保存，更新尚未安装，请稍后重试':'无法启动安装程序，请重试安装'});}}
     }
     return this.getState();
   }

@@ -11,7 +11,7 @@ export interface ComposerOptions {categories:{id:string;title:string}[];ranks:{v
 export interface EditableSource {url:string;floor:string;content:string;title?:string;category?:string;rank?:number;mode:'edit-post'|'edit-comment';editable:boolean}
 export type ForumQueryRequest=
  |{kind:'account'}|{kind:'notifications';category:'mentions'|'replies'|'messages'}
- |{kind:'conversation';memberId:number}|{kind:'introduction';memberId?:number}
+ |{kind:'conversation';memberId:number}|{kind:'introduction';memberId?:number;includeReadme?:boolean}
  |{kind:'space';memberId:number;section:'topics'|'comments'|'followers'|'following';page?:number}
  |{kind:'publication-dates';postIds:number[]}
  |{kind:'directory';memberId:number;section:'followers'|'following';page?:number}

@@ -114,6 +114,7 @@ export type ForumActionRequest =
   | {kind:'reply';url:string;content:string;quote?:{floor:string;author:string;text:string}}
   | {kind:'react';url:string;commentId:string;reaction:'like'|'dislike'|'chicken';approval?:'quote'|'free'|'paid'}
   | {kind:'follow';memberId:number;follow:boolean}
+  | {kind:'block';memberId:number;block:boolean}
   | {kind:'message';memberId:number;content:string;markdown?:boolean};
 export interface ForumActionResult {
   message: string;

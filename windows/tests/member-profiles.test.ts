@@ -7,6 +7,24 @@ const ready=(memberId:number,level=4):ProfileFetchResult=>({ok:true,profile:{mem
 const tick=()=>new Promise<void>(resolve=>setImmediate(resolve));
 function deferred<T>() {let resolve!:(value:T)=>void;const promise=new Promise<T>(done=>{resolve=done;});return {promise,resolve};}
 
+test('Pro-style sequential pacing keeps a gap after each result and still deduplicates repeated authors',async()=>{
+  const events:{kind:'start'|'end';id:number;at:number}[]=[];let active=0,maxActive=0;
+  const service=new MemberProfilesService(async memberId=>{active++;maxActive=Math.max(maxActive,active);events.push({kind:'start',id:memberId,at:Date.now()});await new Promise(resolve=>setTimeout(resolve,3));events.push({kind:'end',id:memberId,at:Date.now()});active--;return ready(memberId);},{maxConcurrency:1,requestDelayMs:20});
+  try{
+    const [first,second]=await Promise.all([service.read({memberIds:[1,2,3]}),service.read({memberIds:[2,3]})]);
+    assert.equal(maxActive,1);assert.equal(first.outcomes.length,3);assert.equal(second.outcomes.length,2);assert.deepEqual(events.filter(event=>event.kind==='start').map(event=>event.id),[1,2,3]);
+    for(let index=2;index<events.length;index+=2)assert.ok(events[index].at-events[index-1].at>=15,'The next author must wait after the previous response');
+  }finally{service.dispose();}
+});
+test('account changes cancel the pacing delay before any old-owner profile request starts',async()=>{
+  const calls:number[]=[];const service=new MemberProfilesService(async memberId=>{calls.push(memberId);return ready(memberId);},{maxConcurrency:1,requestDelayMs:40});
+  try{
+    const old=service.read({memberIds:[1,2]});service.resetScope(1);
+    assert.ok((await old).outcomes.every(outcome=>outcome.reason==='session-changed'));
+    const current=await service.read({memberIds:[3]});assert.equal(current.outcomes[0].status,'ready');assert.deepEqual(calls,[3]);
+  }finally{service.dispose();}
+});
+
 test('all twelve authors finish with a global limit of three and duplicate UID reads share work',async()=>{
   let active=0,maxActive=0;const calls:number[]=[];
   const service=new MemberProfilesService(async memberId=>{

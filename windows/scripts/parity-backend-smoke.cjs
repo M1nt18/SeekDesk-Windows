@@ -38,7 +38,7 @@ globalThis.__fixtureMedia=[];globalThis.fetch=async(input,options={})=>{const ur
       return route.fulfill({json:{success:true,redirect:'/post-222-1',gain:5,current:25,coin:30}});
     }
     reads.push(url.pathname+url.search);
-    if(url.pathname.startsWith('/api/account/getInfo/')){const id=Number(url.pathname.split('/').pop());return route.fulfill({json:{success:true,detail:{member_id:id,member_name:'成员 '+id,rank:3,created_at_str:'2026-01-01',nPost:3,nComment:9,follows:2,fans:4,coin:20,bio:intro.bio,signature_markdown:intro.signature,readme:intro.readme,roles:[{display_text:'测试等级'}]}}});}
+    if(url.pathname.startsWith('/api/account/getInfo/')){const id=Number(url.pathname.split('/').pop());if(id!==owner&&url.search&&url.search!=='?readme=1')return route.fulfill({status:500,json:{success:false,message:'USER NOT FOUND'}});return route.fulfill({json:{success:true,detail:{member_id:id,member_name:'成员 '+id,rank:3,created_at_str:'2026-01-01',nPost:3,nComment:9,follows:2,fans:4,coin:20,bio:intro.bio,signature_markdown:intro.signature,readme:intro.readme,roles:[{display_text:'测试等级'}]}}});}
     if(url.pathname==='/api/notification/unread-count')return route.fulfill({json:{success:true,unreadCount:{atMe:1,reply:2,message:3}}});
     if(url.pathname==='/api/notification/at-me/list'||url.pathname==='/api/notification/reply-to-me/list')return route.fulfill({json:{success:true,data:[{id:800,commenter_id:77,commenter_name:'朋友甲',post_id:123,floor_id:21,title:'通知帖子',viewed:0,created_at:'2026-11-01'}]}});
     if(url.pathname==='/api/notification/message/list'||url.pathname.startsWith('/api/notification/message/with/'))return route.fulfill({json:{success:true,msgArray:messages()}});
@@ -58,6 +58,10 @@ globalThis.__fixtureMedia=[];globalThis.fetch=async(input,options={})=>{const ur
   const inbox=await query({kind:'notifications',category:'messages'});assert.equal(inbox.conversations.length,1);assert.equal(inbox.conversations[0].unread,true);assert.equal(inbox.conversations[0].preview,'最新发出');
   const conversation=await query({kind:'conversation',memberId:77});assert.equal(conversation.messages.length,2);assert.ok(conversation.messages.every(row=>row.text!=='不可泄漏'));check('Account balances, unread counts, all inbox categories and exact private participants');
   const introduction=await query({kind:'introduction',memberId:42});assert.equal(introduction.introduction.signature,'原始签名');
+  const basicStart=reads.length,basicProfile=await query({kind:'introduction',memberId:77,includeReadme:false});assert.equal(basicProfile.profile.id,77);assert.equal(basicProfile.profile.topics,3);assert.equal(basicProfile.profile.replies,9);assert.equal(basicProfile.profile.followers,4);
+  assert.deepEqual(reads.slice(basicStart).filter(url=>url.startsWith('/api/account/getInfo/77')),['/api/account/getInfo/77']);
+  const otherProfile=await query({kind:'introduction',memberId:77});assert.equal(otherProfile.introduction.readme,'原始自述');assert.ok(reads.includes('/api/account/getInfo/77?readme=1'));assert.ok(!reads.includes('/api/account/getInfo/77?readme=1&signature=1'));
+  check('Real IPC keeps lightweight user cards on the Pro endpoint and full public spaces on the original readme-only endpoint');
   for(const section of ['topics','comments','followers','following']){const result=await query({kind:'space',memberId:42,section});assert.ok((result.activity||result.users).length>0);}
   for(const section of ['followers','following'])assert.equal((await query({kind:'directory',memberId:42,section})).users[0].id,77);
   assert.equal((await query({kind:'search-users',term:'朋友'})).users[0].id,77);assert.equal((await query({kind:'search-users',term:'missing'})).users.length,0);
@@ -82,6 +86,9 @@ globalThis.__fixtureMedia=[];globalThis.fetch=async(input,options={})=>{const ur
   const down=await action({kind:'react',url:'https://www.nodeseek.com/post-123-1',commentId:'2',reaction:'dislike'});assert.equal(down.confirmation,'paid');
   await action({kind:'follow',memberId:77,follow:true});await action({kind:'follow',memberId:77,follow:false});await action({kind:'message',memberId:77,content:'模拟私信'});
   assert.deepEqual(writes.find(row=>row.path==='/api/statistics/upvote').body,{commentId:9002,action:'add'});check('Reply, real comment-ID reactions, paid/free confirmations, follow/unfollow and private message');
+  await action({kind:'block',memberId:77,block:true});await action({kind:'block',memberId:77,block:false});
+  assert.deepEqual(writes.find(row=>row.path==='/api/block-list/add').body,{block_member_name:'成员 77'});assert.deepEqual(writes.find(row=>row.path==='/api/block-list/del').body,{block_member_id:77});
+  check('Official blacklist add/remove reaches the existing Pro routes through the real account-bound bridge');
   const before=writes.length;rejectNext=true;await assert.rejects(write({kind:'new-topic',title:'拒绝测试',content:'保留草稿',category:'tech',rank:0}),/测试拒绝/);assert.equal(writes.length,before+1);check('Explicit rejection never reports success or automatically resubmits');
   await page.evaluate(()=>window.seekdesk.saveDraft('new-topic',{title:'账号42草稿',content:'仅属于42'},42));await identity(84);
   assert.equal(await page.evaluate(()=>window.seekdesk.loadDraft('new-topic',42)),null);assert.equal(await page.evaluate(()=>window.seekdesk.loadDraft('new-topic',84)),null);

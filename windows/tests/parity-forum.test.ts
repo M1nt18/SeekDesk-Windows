@@ -56,6 +56,38 @@ test('profile save preserves newer untouched fields and rejects a changed-field 
     latest={...latest,readme:'别处新改'};await assert.rejects(f.write({kind:'profile',original,draft}),/其他页面更新/);assert.equal(f.calls.filter(row=>row.options.method==='POST').length,1);
   }finally{f.page.window.close();}
 });
+test('profile cards use the same bare endpoint as Pro and do not require optional README or signature access',async()=>{
+  const f=fixture(async(url)=>url==='/api/account/getInfo/730089'
+    ?response({success:true,detail:{member_id:730089,member_name:'资料接口夹具',rank:1,nPost:12,nComment:34,fans:5,created_at:'2025-01-02T00:00:00Z',bio:'公开介绍'}})
+    :response({success:false,message:'USER NOT FOUND'},500));
+  try{
+    const result=await f.query({kind:'introduction',memberId:730089,includeReadme:false});
+    assert.equal(result.profile.id,730089);assert.equal(result.profile.rank,1);assert.equal(result.profile.topics,12);assert.equal(result.profile.replies,34);assert.equal(result.profile.followers,5);assert.equal(result.profile.bio,'公开介绍');
+    assert.equal(f.calls.length,1);assert.equal(f.calls[0].url,'/api/account/getInfo/730089');assert.equal(f.calls[0].options.credentials,'same-origin');
+  }finally{f.page.window.close();}
+});
+test('personal overview requests only the original readme parameter and never another member signature option',async()=>{
+  const f=fixture(async(url)=>url==='/api/account/getInfo/77?readme=1'
+    ?response({success:true,detail:{member_id:77,member_name:'公开空间夹具',bio:'介绍',readme:'# 个人自述',signature_markdown:'签名'}})
+    :response({success:false,message:'USER NOT FOUND'},500));
+  try{
+    const result=await f.query({kind:'introduction',memberId:77});
+    assert.equal(result.profile.id,77);assert.equal(result.introduction.readme,'# 个人自述');assert.equal(result.introduction.signature,'签名');assert.equal(f.calls.length,1);
+    assert.deepEqual(validateQueryRequest({kind:'introduction',memberId:77,includeReadme:false,signature:true}),{kind:'introduction',memberId:77,includeReadme:false});
+    assert.throws(()=>validateQueryRequest({kind:'introduction',memberId:77,includeReadme:'false'}),/自述读取选项/);
+  }finally{f.page.window.close();}
+});
+test('own introduction still reads its complete editor baseline, including the original signature',async()=>{
+  const f=fixture(async(url)=>url==='/api/account/getInfo/42?readme=1&signature=1'
+    ?response({success:true,detail:{member_id:42,member_name:'本人资料夹具',bio:'本人简介',signature_markdown:'已有签名',readme:'已有自述'}})
+    :response({success:false,message:'Missing complete own introduction'},400));
+  try{
+    for(const request of [{kind:'introduction'},{kind:'introduction',memberId:42}]){
+      const result=await f.query(request);assert.equal(result.introduction.signature,'已有签名');assert.equal(result.introduction.readme,'已有自述');
+    }
+    assert.equal(f.calls.length,2);
+  }finally{f.page.window.close();}
+});
 test('unknown write results are never successful and never retried',async()=>{
   const f=fixture(async()=>response({}),'https://www.nodeseek.com/new-discussion');try{
     await assert.rejects(f.write({kind:'new-topic',title:'测试',content:'正文',category:'tech',rank:0}),/勿重复提交/);assert.equal(f.calls.length,1);

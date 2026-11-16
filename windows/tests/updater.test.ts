@@ -74,7 +74,7 @@ test('one explicit apply downloads, validates, saves and installs once even with
     const first=f.service.apply(),second=f.service.apply();assert.equal(first,second);assert.equal(f.service.getState().applying,true);
     const result=await first;
     assert.equal(result.status,'installing');assert.equal(result.applying,false);
-    assert.deepEqual(order,['download','save','install']);assert.equal(f.native.downloads,1);assert.deepEqual(f.native.installCalls,[[false,true]]);
+    assert.deepEqual(order,['download','save','install']);assert.equal(f.native.downloads,1);assert.deepEqual(f.native.installCalls,[[true,true]]);
     assert.ok(states.includes(true));assert.equal(states.at(-1),false);
   }finally{await f.close();}
 });
@@ -213,12 +213,12 @@ test('a newer version declined by the native OS or rollout check is never offere
   const f=await fixture();try{f.native.isUpdateAvailable=false;const state=await f.service.check();assert.equal(state.status,'unsupported');assert.equal(state.installable,false);await f.service.download();assert.equal(f.native.downloads,0);}finally{await f.close();}
 });
 
-test('download reports progress, hashes the package, and only explicit install runs the visible installer',async()=>{
+test('download reports progress, hashes the package, and only explicit install starts silent replacement with automatic relaunch',async()=>{
   const progress:number[]=[];const f=await fixture({onChange:state=>{if(state.progress)progress.push(state.progress.percent);}});
   try{
     await f.service.check();assert.equal((await f.service.download()).status,'downloaded');assert.ok(progress.includes(48));assert.equal(f.native.installCalls.length,0);
     const receipt=JSON.parse(await fs.readFile(path.join(f.cache,'seekdesk-update.json'),'utf8'));assert.equal(receipt.sha512,hash);assert.equal(receipt.phase,'downloaded');
-    assert.equal((await f.service.install()).status,'installing');assert.deepEqual(f.native.installCalls,[[false,true]]);
+    assert.equal((await f.service.install()).status,'installing');assert.deepEqual(f.native.installCalls,[[true,true]]);
     await f.service.install();assert.equal(f.native.installCalls.length,1);
     await f.service.cleanup();assert.deepEqual(await fs.readFile(path.join(f.cache,'pending',fileName)),payload);
   }finally{await f.close();}
@@ -339,8 +339,26 @@ test('a cancelled installer is restored to downloaded on the next startup of the
     let native:FakeNative|undefined;restarted=new UpdaterService({currentVersion:'0.1.0',isPackaged:true,isInstalled:true,userDataDirectory:f.directory,automaticCheckDelayMs:60_000,installerBusy:async()=>false,nativeFactory:cache=>native=new FakeNative(cache)});
     await restarted.initialize();assert.equal(restarted.getState().status,'downloaded');assert.equal(native!.restoredDownloads.length,1);
     assert.equal(JSON.parse(await fs.readFile(path.join(f.cache,'seekdesk-update.json'),'utf8')).phase,'downloaded');
-    await restarted.install();assert.deepEqual(native!.installCalls,[[false,true]]);
+    await restarted.install();assert.deepEqual(native!.installCalls,[[true,true]]);
   }finally{restarted?.dispose();await f.close();}
+});
+
+test('real NSIS adapter requests silent file replacement and automatic relaunch without executing a program',async()=>{
+  const f=await fixture();
+  try{
+    await f.service.check();await f.service.download();
+    const adapter={version:'0.1.0',name:'SeekDesk Windows',isPackaged:true,appUpdateConfigPath:path.join(f.directory,'unused.yml'),userDataPath:f.directory,baseCachePath:f.directory,whenReady:async()=>{},relaunch(){throw new Error('No real relaunch allowed');},quit(){throw new Error('No real quit allowed');},onQuit(){throw new Error('No automatic install allowed');}};
+    const native=createIsolatedNativeUpdater(f.cache,adapter) as any;
+    native.logger=null;native.autoInstallOnAppQuit=false;
+    const launches:{file:string;args:string[]}[]=[];
+    native.spawnLog=async(file:string,args:string[])=>{launches.push({file,args});return true;};
+    await native.restoreVerifiedDownload({version:'0.2.0',file:fileName,sha512:hash});
+    // BaseUpdater.install prepares the real NSIS command; spawnLog is fully
+    // intercepted, and quitAndInstall/app.quit are deliberately not called.
+    assert.equal(native.install(true,true),true);
+    assert.deepEqual(launches,[{file:path.join(f.cache,'pending',fileName),args:['--updated','/S','--force-run']}]);
+    assert.equal(native.install(true,true),false);assert.equal(launches.length,1);
+  }finally{await f.close();}
 });
 
 test('a tampered cached installer is removed before startup restoration reaches the native adapter',async()=>{

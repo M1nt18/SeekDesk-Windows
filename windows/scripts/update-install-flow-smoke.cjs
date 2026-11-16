@@ -125,6 +125,7 @@ async function readDraft(){const value=JSON.parse(await fs.readFile(path.join(pr
 
   await page.getByRole('button',{name:'立即更新',exact:true}).click();await until(async()=>(await nativeState()).downloads===2,'Retry download did not begin');
   await page.getByRole('button',{name:'返回论坛',exact:true}).click();
+  await until(async()=>await page.getByRole('textbox',{name:'回复帖子',exact:true}).inputValue()==='已保存的开头','Reply draft did not restore after leaving settings');
   const latest='已保存的开头，未等自动保存的最后一字：叶';
   await page.getByRole('textbox',{name:'回复帖子',exact:true}).fill(latest);
   assert.notEqual((await readDraft()).content,latest);
@@ -132,7 +133,7 @@ async function readDraft(){const value=JSON.parse(await fs.readFile(path.join(pr
   await until(async()=>(await nativeState()).snapshots[0]?.dom,'Installer observation did not finish');
   await until(async()=>(await page.evaluate(()=>window.seekdesk.getUpdateState())).errorCode==='install','Synthetic installer refusal was not reported');
   const first=await nativeState();
-  assert.deepEqual(first.installCalls,[[false,true]]);assert.equal(first.prepareAcks,1);
+  assert.deepEqual(first.installCalls,[[true,true]]);assert.equal(first.prepareAcks,1);
   assert.equal(first.snapshots[0].drafts['42']['reply:730001'].content,latest);
   assert.equal(first.snapshots[0].workspace.activeId,'730001');
   assert.deepEqual(first.snapshots[0].dom,{inert:true,overlay:true});

@@ -14,7 +14,9 @@ export function validateQueryRequest(input:unknown):ForumQueryRequest{
   if(!input||typeof input!=='object')throw new Error('读取参数无效');const row=input as Record<string,unknown>;
   switch(row.kind){
     case 'account':case 'attendance-status':case 'composer-options':case 'stickers':return {kind:row.kind};
-    case 'introduction':return {kind:row.kind,...(row.memberId===undefined?{}:{memberId:positive(row.memberId)})};
+    case 'introduction':
+      if(row.includeReadme!==undefined&&typeof row.includeReadme!=='boolean')throw new Error('用户自述读取选项无效');
+      return {kind:row.kind,...(row.memberId===undefined?{}:{memberId:positive(row.memberId)}),...(row.includeReadme===undefined?{}:{includeReadme:row.includeReadme})};
     case 'notifications':return {kind:row.kind,category:section(row.category,['mentions','replies','messages']) as 'mentions'|'replies'|'messages'};
     case 'conversation':return {kind:row.kind,memberId:positive(row.memberId)};
     case 'space':return {kind:row.kind,memberId:positive(row.memberId),section:section(row.section,['topics','comments','followers','following']) as 'topics'|'comments'|'followers'|'following',page:page(row.page)};
@@ -115,7 +117,10 @@ export function createQueryScript(input:unknown,expectedUid?:number):string{
     }
     if(request.kind==='introduction'){
       const id=request.memberId||owner;if(!id)throw new Error('请先登录');
-      const data=await get('/api/account/getInfo/'+id+'?readme=1&signature=1');if(Number(data.detail?.member_id)!==id)throw new Error('用户资料编号不一致');
+      // Match upstream's lightweight/full profile reads. A public user card
+      // needs the same bare endpoint as Pro; it must not require optional
+      // README/signature access before showing the available basic profile.
+      const data=await get('/api/account/getInfo/'+id+(request.includeReadme===false?'':id===owner?'?readme=1&signature=1':'?readme=1'));if(Number(data.detail?.member_id)!==id)throw new Error('用户资料编号不一致');
       return {profile:profile(data.detail),introduction:intro(data.detail)};
     }
     if(request.kind==='publication-dates'){

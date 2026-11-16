@@ -13,3 +13,9 @@
 .user-profile-bio .profile-markdown {font-size:inherit;}
 .user-profile-error {font-size:max(12px,.82rem);line-height:1.7;color:var(--muted);}
 .user-profile-card>footer {display:flex;justify-content:space-between;gap:12px;margin-top:18px;}
+
+.profile-official-block{margin-top:12px;padding:10px 0;border-top:1px dashed var(--border)}
+.profile-official-block summary{display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:600}
+.profile-official-block p{font-size:max(12px,.84rem);line-height:1.6;color:var(--muted)}
+.profile-block-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.profile-block-actions button{font-size:inherit}

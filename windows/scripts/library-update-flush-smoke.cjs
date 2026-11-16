@@ -93,7 +93,7 @@ const nativeState=()=>instance.evaluate(()=>{const s=globalThis.__libraryUpdate;
 const bookmark=(id,title)=>({id:String(id),url:`https://www.nodeseek.com/post-${id}-2#7`,title,author:'合成作者',category:'tech',published:'',summary:''});
 const seed=(post,owner=42)=>page.evaluate(({post,owner})=>window.seekdesk.mutateReadingLibrary({kind:'bookmark-add',post},owner),{post,owner});
 async function openLibrary(){await page.getByRole('button',{name:'阅读资料库',exact:true}).click();await page.getByTestId('reading-library-panel').waitFor();await page.getByTestId('reading-library-panel').getByRole('button',{name:'本地书签',exact:true}).click();}
-async function openAbout(){await page.keyboard.press('Control+,');await page.getByTestId('settings-panel').waitFor();await page.getByRole('button',{name:'关于',exact:true}).click();await page.getByRole('button',{name:'安装并重启',exact:true}).waitFor();}
+async function openAbout(){await page.keyboard.press('Control+,');await page.getByTestId('settings-panel').waitFor();await page.getByRole('button',{name:'关于',exact:true}).click();await page.getByRole('button',{name:'重启更新',exact:true}).waitFor();}
 async function backToReader(){const back=page.getByRole('button',{name:'返回论坛',exact:true});if(await back.count())await back.click();await page.getByTestId('post-row').first().waitFor();}
 async function arm(mode){await instance.evaluate((_electron,mode)=>{globalThis.__libraryUpdate.renameMode=mode;},mode);}
 async function release(){await instance.evaluate(()=>{const s=globalThis.__libraryUpdate;if(!s.releaseRename)throw Error('No held rename');s.releaseRename();});}
@@ -124,7 +124,7 @@ async function applyHeld(expectedPrepares,expectedInstalls){const task=page.eval
   await openAbout();const first=await applyHeld(1,0);
   const before=JSON.parse(await fs.readFile(path.join(profile,'reading-library.json'),'utf8'));assert.equal(before.libraries['user:42'].bookmarks.length,1);
   await release();await first.task;await waitRefusal(1);
-  const state1=await nativeState();assert.deepEqual(state1.installs,[[false,true]]);assert.equal(state1.snapshots[0].library.libraries['user:42'].bookmarks.length,0);assert.deepEqual(state1.snapshots[0].dom,{inert:true,overlay:true});
+  const state1=await nativeState();assert.deepEqual(state1.installs,[[true,true]]);assert.equal(state1.snapshots[0].library.libraries['user:42'].bookmarks.length,0);assert.deepEqual(state1.snapshots[0].dom,{inert:true,overlay:true});
   assert.ok(state1.events.findIndex(row=>row.event==='rename-saved'&&row.label==='clear-before-update')<state1.events.findIndex(row=>row.event==='install'));
   check('An explicit library clear may leave its panel, but its actual atomic rename completes before cached update installation');
 

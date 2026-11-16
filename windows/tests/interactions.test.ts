@@ -19,6 +19,37 @@ function response(body:unknown,status=200,challenge=false) {
 const reply={kind:'reply',url:'https://www.nodeseek.com/post-123-1',content:'A deliberate test reply'};
 const reaction={kind:'react',url:'https://www.nodeseek.com/post-123-1',commentId:'0',reaction:'like'};
 
+test('official blacklist resolves the canonical name from UID and matches the existing Pro add endpoint',async()=>{
+  assert.throws(()=>validateActionRequest({kind:'block',memberId:77,block:'true'}),/黑名单/);
+  assert.throws(()=>validateActionRequest({kind:'block',memberId:0,block:true}),/编号/);
+  assert.deepEqual(validateActionRequest({kind:'block',memberId:77,block:true,name:'forged-name',block_member_name:'forged-name'}),{kind:'block',memberId:77,block:true});
+  const f=fixture(async(url)=>response(url==='/api/account/getInfo/77'?{success:true,detail:{member_id:77,member_name:'官网当前名称'}}:{success:true}));
+  try{
+    assert.equal((await f.run({kind:'block',memberId:77,block:true})).message,'已加入官网黑名单');
+    assert.deepEqual(f.calls.map(call=>call.url),['/api/account/getInfo/77','/api/block-list/add']);
+    assert.deepEqual(JSON.parse(f.calls[1].options.body as string),{block_member_name:'官网当前名称'});
+    assert.equal(f.calls[0].options.credentials,'same-origin');assert.equal(f.calls[1].options.credentials,'same-origin');
+  }finally{f.page.window.close();}
+});
+test('official blacklist removal uses the exact UID and does not require the deleted member profile',async()=>{
+  const f=fixture(async(url)=>url==='/api/block-list/del'?response({success:true}):response({success:false,message:'USER NOT FOUND'},500));
+  try{
+    assert.equal((await f.run({kind:'block',memberId:77,block:false})).message,'已从官网黑名单移除');
+    assert.equal(f.calls.length,1);assert.deepEqual(JSON.parse(f.calls[0].options.body as string),{block_member_id:77});
+    await assert.rejects(f.run({kind:'block',memberId:42,block:true}),/自己/);assert.equal(f.calls.length,1);
+  }finally{f.page.window.close();}
+});
+test('official blacklist rejects mismatched identity and changed sessions before any write',async()=>{
+  for(const scenario of ['wrong-id','missing-name','changed-owner']){
+    const f=fixture(async()=>{if(scenario==='changed-owner')f.win.__config__.user.member_id=88;return response({success:true,detail:{member_id:scenario==='wrong-id'?99:77,member_name:scenario==='missing-name'?'':'合成名称'}});});
+    try{await assert.rejects(f.run({kind:'block',memberId:77,block:true}),/无法确认|账号会话/);assert.equal(f.calls.length,1);assert.notEqual(f.calls[0].options.method,'POST');}finally{f.page.window.close();}
+  }
+});
+test('a rejected official blacklist operation is not reported as successful or automatically retried',async()=>{
+  const f=fixture(async()=>response({success:false,message:'合成官方拒绝'}));
+  try{await assert.rejects(f.run({kind:'block',memberId:77,block:false}),/合成官方拒绝/);assert.equal(f.calls.length,1);}finally{f.page.window.close();}
+});
+
 test('private-message mode reaches the official write unchanged and defaults to Markdown for old clients',async()=>{
   for(const markdown of [true,false,undefined]){
     const f=fixture();try{await f.run({kind:'message',memberId:8,content:'**content**',...(markdown===undefined?{}:{markdown})});assert.equal(JSON.parse(f.calls[0].options.body as string).markdown,markdown!==false);assert.equal(f.calls.length,1);}finally{f.page.window.close();}

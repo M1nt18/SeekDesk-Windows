@@ -86,6 +86,18 @@
     ${endif}
 
     ${if} $seekDeskIsUpdate == "true"
+      ; Also applies to older clients that launch --updated without /S.
+      ; .onInit runs before a window is shown. Keep scope selection only when
+      ; the registry cannot identify one existing copy unambiguously.
+      !ifdef INSTALL_MODE_PER_ALL_USERS
+        SetSilent silent
+      !else
+        ${if} $hasPerMachineInstallation != $hasPerUserInstallation
+          SetSilent silent
+        ${else}
+          SetSilent normal
+        ${endif}
+      !endif
       ; initMultiUser has already selected the existing installation's shell
       ; context. Snapshot before uninstallOldVersion can remove the old links.
       !insertmacro SeekDeskSnapshotUpdateShortcuts

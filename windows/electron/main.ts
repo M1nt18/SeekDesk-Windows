@@ -42,7 +42,9 @@ let officialInspectionPending = false;
 let readerWindow: BrowserWindow | null = null;
 let profileWindow: BrowserWindow | null = null;
 let profileReady: Promise<BrowserWindow> | null = null;
-const memberProfiles = new MemberProfilesService(fetchUserProfile);
+// Pro queues metadata reads with a 300 ms gap; keep the same pacing while
+// retaining cache/deduplication and account-bound cancellation for every author.
+const memberProfiles = new MemberProfilesService(fetchUserProfile,{maxConcurrency:1,requestDelayMs:300,retryDelayMs:300});
 let forumSession: Session;
 let publicSession: Session;
 let store: Store;
@@ -446,7 +448,7 @@ async function forumAction(input: ForumActionRequest): Promise<ForumActionResult
   if(!userId)throw new Error('请先在客户端内的官方页面登录，再进行操作');
   if(actionPending)throw new Error('上一项操作仍在处理中，请稍候');
   const version=generation;
-  const url=request.kind==='reply' || request.kind==='react'?normalizePostUrl(request.url):`${FORUM_ORIGIN}/space/${request.memberId}`;
+  const url=request.kind==='reply' || request.kind==='react'?normalizePostUrl(request.url):request.kind==='block'?FORUM_ORIGIN+'/':`${FORUM_ORIGIN}/space/${request.memberId}`;
   actionPending=true;
   try {
     const result=await onWebsite<ForumActionResult>(url,createActionScript(request,userId),{timeout:35000,action:true});

@@ -4,17 +4,18 @@ import type { MemberProfile } from '../../shared/parity';
 import type { UserProfileMetadata } from '../../shared/profiles';
 import { Avatar, Modal, errorMessage } from './shared-ui';
 import {ProfileMarkdown} from './ProfileMarkdown';
+import {OfficialBlockControls} from './OfficialBlockControls';
 import './user-profile-card.css';
 
 export interface ProfileCardMember {id:number;name:string;avatar?:string;tags?:string[]}
 
 /** A lightweight user card precedes the full personal space, as in ForumUserCard.swift. */
-export function UserProfileCard({member,revision=0,canMessage=true,onClose,onOpenSpace,onMessage}:{member:ProfileCardMember;revision?:number;canMessage?:boolean;onClose:()=>void;onOpenSpace:()=>void;onMessage:(id:number,name:string)=>void}) {
+export function UserProfileCard({member,revision=0,canMessage=true,ownerId,onClose,onOpenSpace,onMessage}:{member:ProfileCardMember;revision?:number;canMessage?:boolean;ownerId?:number;onClose:()=>void;onOpenSpace:()=>void;onMessage:(id:number,name:string)=>void}) {
   const [profile,setProfile]=useState<MemberProfile>(),[compact,setCompact]=useState<UserProfileMetadata>(),[loading,setLoading]=useState(true),[error,setError]=useState(''),[retry,setRetry]=useState(0);
   const loadedScope=useRef('');
   useEffect(()=>{
     let live=true;const scope=member.id+':'+revision;if(scope!==loadedScope.current){setProfile(undefined);setCompact(undefined);loadedScope.current=scope;}setError('');setLoading(true);
-    void window.seekdesk.queryForum({kind:'introduction',memberId:member.id}).then(result=>{if(!live)return;if(result.profile?.id!==member.id)throw new Error('暂时无法读取个人资料');setProfile(result.profile);}).catch(reason=>{if(live)setError(errorMessage(reason));}).finally(()=>{if(live)setLoading(false);});
+    void window.seekdesk.queryForum({kind:'introduction',memberId:member.id,includeReadme:false}).then(result=>{if(!live)return;if(result.profile?.id!==member.id)throw new Error('暂时无法读取个人资料');setProfile(result.profile);}).catch(reason=>{if(live)setError(errorMessage(reason));}).finally(()=>{if(live)setLoading(false);});
     void window.seekdesk.readUserProfiles({memberIds:[member.id],force:retry>0}).then(result=>{if(!live)return;const outcome=result.outcomes.find(item=>item.memberId===member.id);if(outcome?.profile)setCompact(outcome.profile);}).catch(()=>{});
     return()=>{live=false;};
   },[member.id,revision,retry]);
@@ -26,6 +27,7 @@ export function UserProfileCard({member,revision=0,canMessage=true,onClose,onOpe
     {visible?<><div className="user-profile-metrics">{[['主题',visible.topics],['回复',visible.replies],['粉丝',visible.followers]].map(([label,value])=><div key={label}><span>{label}</span><strong>{value??'—'}</strong></div>)}</div>{visible.joined&&<p className="user-profile-joined">加入于 {visible.joined}</p>}{visible.bio&&<ProfileMarkdown source={visible.bio} label="个人介绍" className="user-profile-bio"/>}</>:loading?<p className="muted" role="status">正在读取个人资料…</p>:null}
     {error&&<p className="user-profile-error" role="status">{visible?'刷新失败，正在显示先前资料。':''}{error}</p>}
     <button className="text-button" disabled={loading} onClick={()=>setRetry(value=>value+1)}><RefreshCw size={15}/>{error?'重试资料读取':'刷新资料'}</button>
+    {ownerId&&ownerId!==member.id&&<OfficialBlockControls key={ownerId+':'+member.id} memberId={member.id} name={title} ownerId={ownerId}/>}
     <footer><button className="secondary-button" onClick={onOpenSpace}>查看个人主页</button><button className="primary-button" disabled={!canMessage} onClick={()=>onMessage(member.id,title)}><Mail size={16}/>发私信</button></footer>
   </div></Modal>;
 }

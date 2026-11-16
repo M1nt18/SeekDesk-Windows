@@ -103,10 +103,10 @@ async function assertReadable() {
   await card.getByRole('button', { name: '立即更新', exact: true }).click();
   await card.getByRole('progressbar', { name: '更新下载进度' }).waitFor();
   await emitUpdate({ status: 'downloaded', progress: undefined });
-  await card.getByRole('button', { name: '安装并重启', exact: true }).waitFor();
+  await card.getByRole('button', { name: '重启更新', exact: true }).waitFor();
   assert.equal((await instance.evaluate(() => global.__desktopUi.operations)).includes('install'), false);
-  await card.getByRole('button', { name: '安装并重启', exact: true }).click();
-  await card.getByRole('heading', { name: '正在安装更新', exact: true }).waitFor();
+  await card.getByRole('button', { name: '重启更新', exact: true }).click();
+  await card.getByRole('heading', { name: '正在重启更新', exact: true }).waitFor();
   assert.deepEqual(await instance.evaluate(() => global.__desktopUi.operations), ['check', 'apply', 'cancel', 'apply', 'apply']);
   check('One-click update, progress and cancellation use the updater API; recovered packages can install and restart without manual download');
 

@@ -21,6 +21,9 @@ export function validateActionRequest(input:unknown): ForumActionRequest {
     case 'follow':
       if(typeof value.follow!=='boolean') throw new Error('关注操作参数无效');
       return {kind:'follow',memberId:member(value.memberId),follow:value.follow};
+    case 'block':
+      if(typeof value.block!=='boolean') throw new Error('官网黑名单操作参数无效');
+      return {kind:'block',memberId:member(value.memberId),block:value.block};
     case 'react': {
       if(typeof value.commentId!=='string' || !/^(?:0|[1-9]\d{0,8})$/.test(value.commentId) || !['like','chicken','dislike'].includes(String(value.reaction)) ||
         value.approval!==undefined && !['quote','free','paid'].includes(String(value.approval))) throw new Error('楼层互动参数无效');
@@ -69,6 +72,21 @@ export function createActionScript(input:unknown,expectedAccountId:number): stri
       return checkResponse(response);
     };
     try {
+      if(request.kind==='block') {
+        if(request.memberId===owner) throw new Error('不能将自己加入官网黑名单');
+        if(request.block) {
+          let response;
+          try {response=await fetch('/api/account/getInfo/'+request.memberId,{...options,signal:AbortSignal.timeout(12000)});}catch{throw new Error('暂时无法核对该用户资料，请稍后重试');}
+          const data=await checkResponse(response),detail=data.detail;
+          // Pro's add route takes a username. Resolve it from the selected UID
+          // immediately before writing so an old or forged label cannot block
+          // another account. Removal uses the exact UID and also works for a
+          // deleted member whose public profile is no longer available.
+          if(Number(detail?.member_id)!==request.memberId||typeof detail?.member_name!=='string'||!detail.member_name.trim()||detail.member_name.length>200)throw new Error('无法确认该用户的官网名称，请刷新资料后重试');
+          await post('/api/block-list/add',{block_member_name:detail.member_name});
+        } else await post('/api/block-list/del',{block_member_id:request.memberId});
+        return {message:request.block?'已加入官网黑名单':'已从官网黑名单移除'};
+      }
       if(request.kind==='follow') {
         if(request.memberId===owner) throw new Error('不能关注自己');
         await post(request.follow?'/api/fans/add':'/api/fans/del',{followed_member_id:request.memberId});

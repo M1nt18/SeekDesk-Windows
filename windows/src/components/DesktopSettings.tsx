@@ -88,17 +88,17 @@ type UpdateAction = 'check' | 'apply' | 'cancel';
 
 function updateDescription(state: UpdateState) {
   if(state.status==='downloaded'&&state.errorCode==='prepare')return '当前编辑内容未能保存，更新尚未安装，请稍后重试。';
-  if(state.status==='downloaded'&&state.applying)return '更新文件已准备好，即将自动安装并重启，请稍候…';
-  if(state.status==='downloaded'&&state.errorCode==='install')return '上次未能启动更新，点击“安装并重启”即可重试，无需重新下载。';
+  if(state.status==='downloaded'&&state.applying)return '更新文件已准备好，即将自动重启更新，请稍候…';
+  if(state.status==='downloaded'&&state.errorCode==='install')return '上次未能启动更新，点击“重启更新”即可重试，无需重新下载。';
   if (state.manualOnly && state.status === 'available') return '此版本尚未提供在线更新文件，请前往发布页下载安装。';
   switch (state.status) {
     case 'idle': return state.automaticChecks===false?'自动检查已关闭，可点击“检查更新”手动查询。':'启动时会自动检查新版本，发现更新后可一键完成。';
     case 'checking': return '正在检查是否有可用的新版本…';
     case 'available': return '点击“立即更新”后将在后台下载和校验，随后自动更新并重启。';
     case 'up-to-date': return '你正在使用最新版本。';
-    case 'downloading': return '正在后台下载更新，校验完成后会自动安装并重启；现在仍可取消。';
-    case 'downloaded': return '更新文件已校验，点击“安装并重启”即可完成更新。';
-    case 'installing': return '正在安装更新，完成后应用会自动重启，请稍候…';
+    case 'downloading': return '正在后台下载更新，校验完成后会自动重启更新；现在仍可取消。';
+    case 'downloaded': return '更新文件已校验，点击“重启更新”即可完成更新。';
+    case 'installing': return '正在后台更新，新版将自动打开，请稍候…';
     case 'cancelled': return '更新已取消，可以重新点击“立即更新”。';
     case 'unsupported': return '开发模式和免安装版请从发布页手动更新；安装版支持在线下载和安装。';
     case 'error':
@@ -121,7 +121,7 @@ function updateTitle(state: UpdateState) {
     case 'up-to-date': return '已是最新版本';
     case 'downloading': return '正在下载更新';
     case 'downloaded': return '更新已下载';
-    case 'installing': return '正在安装更新';
+    case 'installing': return '正在重启更新';
     case 'cancelled': return '已取消下载';
     case 'error': return '更新暂时不可用';
     case 'unsupported': return '请手动更新';
@@ -204,7 +204,7 @@ export function DesktopUpdateCard({ version, onExternal }: { version: string; on
       <div><span>{percent.toFixed(1)}%</span>{state.progress && <span>{formatBytes(state.progress.transferred)} / {formatBytes(state.progress.total)} · {formatBytes(state.progress.bytesPerSecond)}/s</span>}</div>
     </div>}
     <div className="desktop-update-actions">
-      {state.status === 'downloaded' && state.installable && !state.manualOnly && <button className="primary-button" disabled={Boolean(pending) || applying} onClick={() => void act('apply')}><RotateCw size={16}/>{applying ? '正在准备安装…' : pending === 'apply' ? '正在安装…' : '安装并重启'}</button>}
+      {state.status === 'downloaded' && state.installable && !state.manualOnly && <button className="primary-button" disabled={Boolean(pending) || applying} onClick={() => void act('apply')}><RotateCw size={16}/>{applying ? '正在准备更新…' : pending === 'apply' ? '正在重启…' : '重启更新'}</button>}
       {canDownload && <button className="primary-button" disabled={Boolean(pending) || loading} onClick={() => void act('apply')}><Download size={16}/>{pending === 'apply' ? '正在开始更新…' : '立即更新'}</button>}
       {downloading && <button className="secondary-button" disabled={pending === 'cancel'} onClick={() => void act('cancel')}>{pending === 'cancel' ? '正在取消…' : '取消下载'}</button>}
       {!downloading && !installing && state.status !== 'downloaded' && <button className="secondary-button" disabled={loading || Boolean(pending) || checking} onClick={() => void act('check')}><RefreshCw size={16} className={checking ? 'spin' : ''}/>{checking ? '正在检查…' : '检查更新'}</button>}

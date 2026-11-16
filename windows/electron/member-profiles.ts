@@ -4,7 +4,7 @@ export type ProfileFetchResult =
   | {ok:true;profile:UserProfileMetadata}
   | {ok:false;reason:UserProfileFailure;httpStatus?:number};
 export type ProfileFetcher=(memberId:number,signal:AbortSignal)=>Promise<ProfileFetchResult>;
-export interface MemberProfilesOptions {now?:()=>number;retryDelayMs?:number}
+export interface MemberProfilesOptions {now?:()=>number;retryDelayMs?:number;maxConcurrency?:1|2|3;requestDelayMs?:number}
 
 interface CachedProfile {profile:UserProfileMetadata;fetchedAt:number}
 interface CachedFailure {reason:UserProfileFailure;at:number}
@@ -24,6 +24,8 @@ const validMemberId=(value:unknown):value is number=>Number.isSafeInteger(value)
 export class MemberProfilesService {
   private readonly now:()=>number;
   private readonly retryDelayMs:number;
+  private readonly maxConcurrency:number;
+  private readonly requestDelayMs:number;
   private scope=0;
   private epoch=0;
   private disposed=false;
@@ -37,6 +39,8 @@ export class MemberProfilesService {
   constructor(private readonly fetchOne:ProfileFetcher,options:MemberProfilesOptions={}) {
     this.now=options.now??Date.now;
     this.retryDelayMs=options.retryDelayMs??150;
+    this.maxConcurrency=options.maxConcurrency??concurrency;
+    this.requestDelayMs=Math.max(0,Math.min(5000,Number.isFinite(options.requestDelayMs)?options.requestDelayMs!:0));
   }
 
   async read(request:UserProfilesRequest):Promise<UserProfilesResult> {
@@ -110,7 +114,7 @@ export class MemberProfilesService {
   }
 
   private pump():void {
-    while(!this.disposed && this.active<concurrency && this.queue.length) {
+    while(!this.disposed && this.active<this.maxConcurrency && this.queue.length) {
       const job=this.queue.shift()!;
       if(job.epoch!==this.epoch) continue;
       this.active++;
@@ -119,6 +123,8 @@ export class MemberProfilesService {
   }
 
   private async run(job:PendingProfile):Promise<void> {
+    if(this.requestDelayMs)await this.backoff(job.controller.signal,this.requestDelayMs);
+    if(job.epoch!==this.epoch||job.controller.signal.aborted)return;
     let result=await this.fetch(job);
     if(!result.ok && this.retryable(result) && !job.controller.signal.aborted) {
       await this.backoff(job.controller.signal);
@@ -168,11 +174,11 @@ export class MemberProfilesService {
     return result.reason==='network' || result.reason==='timeout' || (result.reason==='http' && (result.httpStatus??0)>=500 && (result.httpStatus??0)<=599);
   }
 
-  private backoff(signal:AbortSignal):Promise<void> {
+  private backoff(signal:AbortSignal,delayMs=this.retryDelayMs):Promise<void> {
     if(signal.aborted) return Promise.resolve();
     return new Promise(resolve=>{
       const finish=()=>{clearTimeout(timer);signal.removeEventListener('abort',finish);resolve();};
-      const timer=setTimeout(finish,this.retryDelayMs);
+      const timer=setTimeout(finish,delayMs);
       signal.addEventListener('abort',finish,{once:true});
     });
   }
