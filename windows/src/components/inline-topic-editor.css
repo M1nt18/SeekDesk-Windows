@@ -1,0 +1,12 @@
+.inline-topic-editor{min-width:0;margin:14px 0;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface-alt)}
+.inline-editor-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.inline-editor-heading>strong{font-size:max(12px,.9rem)}
+.inline-editor-heading>div{display:flex;align-items:center;gap:8px}
+.inline-editor-heading button{font-size:max(12px,.8rem);min-height:30px}
+.inline-topic-editor .topic-editor-container{height:auto;min-height:0;padding:0;overflow:visible}
+.inline-topic-editor .topic-title-input{height:auto;min-height:38px;margin:0 0 10px;font-size:1rem}
+.inline-topic-editor .md-body{height:180px;max-height:55vh;min-height:120px}
+.inline-topic-editor .md-expanded .md-body{height:360px;max-height:70vh}
+.inline-topic-editor .panel-state{min-height:120px;padding:16px}
+.inline-topic-editor .composer-status{margin-top:8px;gap:8px;flex-wrap:wrap}
+@media(max-width:600px){.inline-editor-heading{align-items:flex-start;flex-wrap:wrap}}

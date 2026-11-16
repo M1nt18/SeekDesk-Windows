@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getThreadPagination } from '../shared/thread-pages';
+import { getThreadPagination,hasThreadPagination } from '../shared/thread-pages';
+
+test('a single page has no navigation while any real second page keeps both navigation points available',()=>{
+  assert.equal(hasThreadPagination({page:1,nextPage:null}),false);
+  assert.equal(hasThreadPagination({page:1,nextPage:null,totalPages:1,pages:[{number:1,url:'/post-123-1'}]}),false);
+  assert.equal(hasThreadPagination({page:1,nextPage:2}),true);
+  assert.equal(hasThreadPagination({page:1,nextPage:null,totalPages:2}),true);
+  assert.equal(hasThreadPagination({page:2,nextPage:null}),true);
+});
 
 const links = (...numbers: number[]) => numbers.map(number => ({number, url: `/post-123-${number}.html`}));
 

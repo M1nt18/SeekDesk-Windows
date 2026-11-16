@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { MemberProfile } from '../../shared/parity';
 import type { UserProfileMetadata } from '../../shared/profiles';
 import { Avatar, Modal, errorMessage } from './shared-ui';
+import {ProfileMarkdown} from './ProfileMarkdown';
 import './user-profile-card.css';
 
 export interface ProfileCardMember {id:number;name:string;avatar?:string;tags?:string[]}
@@ -22,7 +23,7 @@ export function UserProfileCard({member,revision=0,canMessage=true,onClose,onOpe
   const title=visible?.name||member.name||'用户 '+member.id,rank=visible?.rank??level?.level,tags=[...new Set([...(member.tags||[]),...(visible?.roles||[]),...(level?.role?[level.role]:[])])].filter(Boolean).slice(0,4);
   return <Modal title="用户资料" onClose={onClose}><div className="user-profile-card">
     <header><Avatar name={title} src={visible?.avatar||member.avatar} id={member.id} large/><div><h3>{title}</h3><p>UID {member.id}</p><div className="user-profile-badges">{rank!==undefined&&<span className="level-badge" data-level={rank}>Lv {rank}</span>}{tags.map(tag=><span className="role-badge" key={tag}>{tag}</span>)}</div></div></header>
-    {visible?<><div className="user-profile-metrics">{[['主题',visible.topics],['回复',visible.replies],['粉丝',visible.followers]].map(([label,value])=><div key={label}><span>{label}</span><strong>{value??'—'}</strong></div>)}</div>{visible.joined&&<p className="user-profile-joined">加入于 {visible.joined}</p>}{visible.bio&&<p className="user-profile-bio">{visible.bio}</p>}</>:loading?<p className="muted" role="status">正在读取个人资料…</p>:null}
+    {visible?<><div className="user-profile-metrics">{[['主题',visible.topics],['回复',visible.replies],['粉丝',visible.followers]].map(([label,value])=><div key={label}><span>{label}</span><strong>{value??'—'}</strong></div>)}</div>{visible.joined&&<p className="user-profile-joined">加入于 {visible.joined}</p>}{visible.bio&&<ProfileMarkdown source={visible.bio} label="个人介绍" className="user-profile-bio"/>}</>:loading?<p className="muted" role="status">正在读取个人资料…</p>:null}
     {error&&<p className="user-profile-error" role="status">{visible?'刷新失败，正在显示先前资料。':''}{error}</p>}
     <button className="text-button" disabled={loading} onClick={()=>setRetry(value=>value+1)}><RefreshCw size={15}/>{error?'重试资料读取':'刷新资料'}</button>
     <footer><button className="secondary-button" onClick={onOpenSpace}>查看个人主页</button><button className="primary-button" disabled={!canMessage} onClick={()=>onMessage(member.id,title)}><Mail size={16}/>发私信</button></footer>

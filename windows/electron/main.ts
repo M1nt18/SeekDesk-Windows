@@ -10,6 +10,8 @@ import { Store, validateSettings, validateWorkspace, validateBlockedUsers } from
 import {UserscriptHost} from './userscripts';
 import {DesktopWindowController} from './desktop-window';
 import {UpdaterService} from './updater';
+import {ReadingLibraryStore} from './reading-library';
+import {prepareCaptureMode,captureModeImage,type CaptureMode} from './capture-mode';
 import {ParityStore,validateAppearance,validateHistory} from './parity-store';
 import {MediaService} from './media';
 import {ExtensionsService} from './extensions';
@@ -17,13 +19,19 @@ import {createQueryScript,createWriteScript,requestPage,validateQueryRequest,val
 import type {ForumQueryRequest,ForumQueryResult,ForumWriteRequest,ForumWriteResult,ExtensionsState,RankingPeriod} from '../shared/parity';
 
 // Remote website contents never receive a preload, Node.js, or application IPC.
-const testing = process.env.SEEKDESK_TEST === '1';
-if (testing && process.env.SEEKDESK_USER_DATA) app.setPath('userData', process.env.SEEKDESK_USER_DATA);
-const devURL = process.env.SEEKDESK_DEV_URL;
+let captureMode:CaptureMode|undefined;
+try{captureMode=prepareCaptureMode(process.argv,{workingDirectory:process.cwd(),temporaryDirectory:app.getPath('temp')});}
+catch{console.error('截图参数无效，请指定新的 PNG 输出文件');app.exit(1);}
+const testing = process.env.SEEKDESK_TEST === '1'||Boolean(captureMode);
+if(captureMode)app.setPath('userData',captureMode.userDataDirectory);
+else if (testing && process.env.SEEKDESK_USER_DATA) app.setPath('userData', process.env.SEEKDESK_USER_DATA);
+const devURL = captureMode?undefined:process.env.SEEKDESK_DEV_URL;
 if (devURL && devURL !== 'http://127.0.0.1:5173') throw new Error('开发地址无效');
 const rendererFile = path.join(__dirname, '../../dist/index.html');
 const rendererURL = devURL ? new URL(devURL).href : pathToFileURL(rendererFile).href;
 let mainWindow: BrowserWindow | null = null;
+let updatePrepareSequence=0;
+let updatePreparation:{id:number;contents:WebContents;finish:(success:boolean)=>void}|undefined;
 let officialView: WebContentsView | null = null;
 let calculatorView: WebContentsView | null = null;
 let calculatorSession: Session;
@@ -41,6 +49,7 @@ let store: Store;
 let userscriptHost: UserscriptHost;
 let desktopWindow:DesktopWindowController;
 let updater:UpdaterService;
+let readingLibrary:ReadingLibraryStore;
 let buildNumber='源码调试';
 let features:ParityStore;
 let media:MediaService;
@@ -54,6 +63,7 @@ let generation = 0;
 let verificationUntil = 0;
 let websiteQueue: Promise<unknown> = Promise.resolve();
 let rssCache: {posts: Post[]; time:number} | null = null;
+const publicLibraryPosts=new Map<string,Post>();
 let rssPending: Promise<Post[]> | null = null;
 let actionPending = false;
 const avatarCache = new Map<number,{data:string;time:number}>();
@@ -376,6 +386,8 @@ async function rssPosts(): Promise<Post[]> {
         chunks.push(value);
       }
       const posts = parseRss(Buffer.concat(chunks).toString('utf8'));
+      for(const post of posts){publicLibraryPosts.delete(post.id);publicLibraryPosts.set(post.id,{id:post.id,url:post.url,title:post.title,author:post.author,category:post.category,published:post.published,summary:''});}
+      while(publicLibraryPosts.size>200)publicLibraryPosts.delete(publicLibraryPosts.keys().next().value!);
       rssCache = {posts,time:Date.now()};
       return posts;
     } catch (error) {
@@ -462,20 +474,68 @@ async function loadAvatar(input: unknown): Promise<string | null> {
     avatarCache.set(id,{data,time:Date.now()});return data;
   } catch {return null;} finally {clearTimeout(timer);}
 }
+async function prepareUpdateInstall() {
+  const contents=mainWindow?.webContents;
+  if(!contents||contents.isDestroyed()||contents.isLoadingMainFrame())throw new Error('客户端尚未就绪');
+  closeOfficial();
+  await new Promise<void>((resolve,reject)=>{
+    const id=++updatePrepareSequence;
+    const onDestroyed=()=>finish(false);
+    const timer=setTimeout(()=>finish(false),15000);
+    const finish=(success:boolean)=>{
+      if(updatePreparation?.id!==id)return;
+      clearTimeout(timer);contents.removeListener('destroyed',onDestroyed);updatePreparation=undefined;
+      if(success)resolve();else reject(new Error('当前编辑内容未能保存'));
+    };
+    updatePreparation={id,contents,finish};
+    contents.once('destroyed',onDestroyed);
+    contents.send('app:update-prepare',id);
+  });
+  await Promise.all([store.save(),features.save(),desktopWindow.flush()]);
+}
 function registerIPC() {
   const handle = (name: string, fn: (...args: any[]) => unknown) => ipcMain.handle(name, async (event,...args) => {assertLocal(event); return fn(...args);});
   const assertOwner=(owner:unknown)=>{if(account.status!=='signed-in'||!Number.isSafeInteger(owner)||owner!==account.id)throw new Error('账号已变化，请确认当前账号后重新操作');};
+  const libraryOwner=(owner:unknown):number|undefined=>{
+    if(account.status==='signed-in'&&Number.isSafeInteger(owner)&&owner===account.id)return account.id;
+    if(owner===undefined&&account.id===undefined&&account.status!=='signed-in')return undefined;
+    throw new Error('当前会话尚未确认或已变化，请刷新后读取资料库');
+  };
+  handle('library:read',async(ownerInput)=>{
+    const owner=libraryOwner(ownerInput),version=generation;await readingLibrary.load();
+    if(version!==generation)throw new Error('会话已变化，请重新读取资料库');
+    libraryOwner(ownerInput);return readingLibrary.read(owner);
+  });
+  handle('library:mutate',async(request,ownerInput)=>{
+    const owner=libraryOwner(ownerInput),version=generation;await readingLibrary.load();
+    if(version!==generation)throw new Error('会话已变化，请重新操作资料库');
+    libraryOwner(ownerInput);
+    if(owner===undefined&&account.status!=='signed-out'&&request&&['visit','bookmark-add','bookmark-toggle'].includes(request.kind)){
+      // An unconfirmed guest may keep public RSS metadata, never private page
+      // titles from a session whose owner has not yet been established.
+      const publicPost=publicLibraryPosts.get(request.post?.id);
+      if(!publicPost)throw new Error('当前会话尚未确认，请在官方页面验证后保存此帖子');
+      request={...request,post:{...publicPost,url:request.post.url,summary:''}};
+    }
+    const result=await readingLibrary.mutate(owner,request);
+    if(version!==generation)throw new Error('会话已变化，当前界面不再显示先前账号的资料库');
+    return result;
+  });
   handle('app:desktop-preferences',()=>desktopWindow.getPreferences());
   handle('app:close-behavior',(behavior)=>desktopWindow.setCloseBehavior(behavior));
+  handle('app:automatic-updates',async(value)=>{const preferences=await desktopWindow.setAutomaticUpdates(value);updater.setAutomaticChecks(preferences.automaticUpdates!==false);return preferences;});
   handle('app:update-state',()=>updater.getState());
   handle('app:update-check',()=>updater.check());
   handle('app:update-download',()=>updater.download());
+  handle('app:update-apply',()=>updater.apply());
   handle('app:update-cancel',()=>updater.cancel());
+  handle('app:update-prepared',(id,success)=>{
+    if(updatePreparation&&id===updatePreparation.id&&typeof success==='boolean')updatePreparation.finish(success);
+  });
   handle('app:update-install',async()=>{
     if(updater.getState().status!=='downloaded'||!mainWindow)return updater.getState();
     const choice=await dialog.showMessageBox(mainWindow,{type:'question',title:'安装 SeekDesk 更新',message:'现在重启并安装更新？',detail:'请先保存正在编辑的内容。安装完成后会重新打开客户端。',buttons:['立即安装','取消'],defaultId:1,cancelId:1,noLink:true});
     if(choice.response!==0)return updater.getState();
-    await Promise.all([store.save(),features.save(),desktopWindow.flush()]);
     return updater.install();
   });
   handle('tool:calculator',openCalculator);
@@ -564,7 +624,8 @@ function registerIPC() {
   ipcMain.on('app:window',(event,action) => {assertLocal(event); if (action==='close') mainWindow?.close(); else if(action==='minimize') mainWindow?.minimize(); else if(action==='maximize' && mainWindow) {if(mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize();}});
 }
 function createMain() {
-  mainWindow = new BrowserWindow({...desktopWindow.createOptions(),show:false,frame:false,backgroundColor:'#f6f7f9',title:'SeekDesk Windows',icon:path.join(__dirname,'../../build/icon.ico'),webPreferences:{preload:path.join(__dirname,'preload.js'),sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true}});
+  let captureStarted=false;
+  mainWindow = new BrowserWindow({...desktopWindow.createOptions(),show:false,frame:false,backgroundColor:'#f6f7f9',title:'SeekDesk Windows',icon:path.join(__dirname,'../../build/icon.ico'),webPreferences:{preload:path.join(__dirname,'preload.js'),sandbox:true,contextIsolation:true,nodeIntegration:false,webSecurity:true,...(captureMode?{backgroundThrottling:false}:{})},...(captureMode?{focusable:false}:{})});
   desktopWindow.attach(mainWindow);
   mainWindow.setMenuBarVisibility(false);
   applyBrandIcon();
@@ -572,12 +633,12 @@ function createMain() {
   mainWindow.webContents.on('will-navigate',(event,url) => {if(url !== rendererURL) event.preventDefault();});
   mainWindow.webContents.on('will-redirect',event => event.preventDefault());
   mainWindow.webContents.on('did-start-loading',closeOfficial);
-  mainWindow.on('ready-to-show',() => {desktopWindow.restore();mainWindow?.show();});
+  mainWindow.on('ready-to-show',() => {desktopWindow.restore();const window=mainWindow;if(!window)return;if(!captureMode){window.show();return;}if(captureStarted)return;captureStarted=true;window.setFocusable(false);window.showInactive();void captureModeImage(window.webContents,captureMode).then(()=>app.exit(0),()=>{console.error('截图未能完成，请确认本地构建后重试');app.exit(1);});});
   mainWindow.on('close',event=>{if(!event.defaultPrevented){destroyOfficial();destroyCalculator();}});
   mainWindow.on('closed',() => {mainWindow=null;app.quit();});
   void mainWindow.loadURL(rendererURL);
 }
-if (!app.requestSingleInstanceLock() && !testing) app.quit();
+if (!testing && !app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance',() => desktopWindow?.show());
   app.whenReady().then(async () => {
@@ -599,10 +660,11 @@ else {
     await store.load();
     features=new ParityStore(app.getPath('userData'));
     media=new MediaService(app.getPath('userData'),()=>mainWindow);
-    await Promise.all([features.load(),media.load()]);
+    readingLibrary=new ReadingLibraryStore(app.getPath('userData'));
+    await Promise.all([features.load(),media.load(),readingLibrary.load()]);
     desktopWindow=await DesktopWindowController.load({directory:app.getPath('userData'),app,screen,dialog,createTray:icon=>new Tray(icon),createMenu:template=>Menu.buildFromTemplate(template),trayIcon:path.join(__dirname,'../../build/icon.ico'),onFinalQuit:async()=>{await Promise.all([store.save(),features.save()]);}});
     const installed=app.isPackaged&&process.platform==='win32'&&!process.env.PORTABLE_EXECUTABLE_DIR&&await fs.stat(path.join(path.dirname(process.execPath),'Uninstall SeekDesk Windows.exe')).then(value=>value.isFile()).catch(()=>false);
-    updater=new UpdaterService({currentVersion:app.getVersion(),isPackaged:app.isPackaged,isInstalled:installed,userDataDirectory:app.getPath('userData'),onChange:state=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('app:update-change',state);}});
+    updater=new UpdaterService({currentVersion:app.getVersion(),isPackaged:app.isPackaged,isInstalled:installed,userDataDirectory:app.getPath('userData'),automaticChecks:desktopWindow.getPreferences().automaticUpdates!==false,beforeInstall:prepareUpdateInstall,onChange:state=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('app:update-change',state);}});
     extensions=new ExtensionsService(features.extensions,{
       getAccount:()=>account,
       readAttendance:async()=>{const result=await queryForum({kind:'attendance-status'});return result.attendance||{kind:'failed'};},

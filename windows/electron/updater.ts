@@ -44,7 +44,10 @@ export interface UpdaterOptions {
   installerBusy?:(file:string)=>Promise<boolean>;
   now?:()=>number;
   automaticCheckDelayMs?:number;
+  automaticChecks?:boolean;
+  periodicIntervalMs?:number;
   cleanupRetryDelayMs?:number;
+  beforeInstall?:()=>Promise<void>;
 }
 
 function stableVersion(value:unknown):string|null {
@@ -121,9 +124,13 @@ export class UpdaterService {
   private checkTask:Promise<UpdateState>|undefined;
   private downloadTask:Promise<UpdateState>|undefined;
   private installTask:Promise<UpdateState>|undefined;
+  private applyTask:Promise<UpdateState>|undefined;
+  private applyEpoch=0;
   private token:{cancel():void;readonly cancelled:boolean}|undefined;
   private timer:ReturnType<typeof setTimeout>|undefined;
   private periodic:ReturnType<typeof setInterval>|undefined;
+  private periodicCheck:ReturnType<typeof setInterval>|undefined;
+  private automaticChecks:boolean;
   private cleanupRetry:ReturnType<typeof setTimeout>|undefined;
   private disposed=false;
   private installing=false;
@@ -136,10 +143,25 @@ export class UpdaterService {
     if(!path.isAbsolute(options.userDataDirectory))throw new Error('更新缓存位置无效');
     this.io=options.fileSystem||fs;this.now=options.now||Date.now;
     this.cache=path.join(path.resolve(options.userDataDirectory),UPDATE_CACHE_NAME);
+    this.automaticChecks=options.automaticChecks!==false;
     const supported=options.isPackaged&&options.isInstalled;
     this.state={status:supported?'idle':'unsupported',currentVersion:options.currentVersion,installable:supported,message:supported?'仅在确认后下载和安装更新':options.isPackaged?'便携版不支持在线安装，请前往发布页下载安装版':'源码调试版不支持在线安装',releaseUrl:UPDATE_REPOSITORY+'/releases'};
   }
-  getState():UpdateState {return structuredClone({...this.state,canDownload:!this.disposed&&this.available()&&Boolean(this.info)&&!this.state.manualOnly&&['available','cancelled','error'].includes(this.state.status)&&!this.installing});}
+  getState():UpdateState {return structuredClone({...this.state,automaticChecks:this.automaticChecks,applying:!this.disposed&&Boolean(this.applyTask),canDownload:!this.disposed&&this.available()&&Boolean(this.info)&&!this.state.manualOnly&&['available','cancelled','error'].includes(this.state.status)&&!this.installing});}
+  setAutomaticChecks(value:unknown):UpdateState {
+    if(typeof value!=='boolean')throw new Error('自动更新检查设置无效');
+    if(this.disposed)return this.getState();
+    this.automaticChecks=value;
+    this.scheduleAutomaticChecks();
+    this.emit({});
+    return this.getState();
+  }
+  private scheduleAutomaticChecks():void {
+    clearTimeout(this.timer);clearInterval(this.periodicCheck);this.timer=undefined;this.periodicCheck=undefined;
+    if(this.disposed||!this.automaticChecks||!this.native||!this.available())return;
+    this.timer=setTimeout(()=>{this.timer=undefined;if(this.automaticChecks&&!this.disposed)void this.check();},this.options.automaticCheckDelayMs??15_000);this.timer.unref?.();
+    this.periodicCheck=setInterval(()=>{if(this.automaticChecks&&!this.disposed&&!this.checkTask&&!this.downloadTask&&!this.installing&&this.state.status!=='downloaded')void this.check();},this.options.periodicIntervalMs??DAY);this.periodicCheck.unref?.();
+  }
   private emit(patch:Partial<UpdateState>) {
     if(this.disposed)return;
     this.state={...this.state,...patch};this.options.onChange?.(this.getState());
@@ -172,8 +194,8 @@ export class UpdaterService {
       });
       await this.restorePendingDownload();
       if(this.disposed)return;
-      this.timer=setTimeout(()=>{void this.check();},this.options.automaticCheckDelayMs??15_000);this.timer.unref?.();
-      this.periodic=setInterval(()=>{void this.cleanup().catch(()=>{});if(!this.checkTask&&!this.downloadTask&&!this.installing&&this.state.status!=='downloaded')void this.check();},DAY);this.periodic.unref?.();
+      this.scheduleAutomaticChecks();
+      this.periodic=setInterval(()=>{void this.cleanup().catch(()=>{});},this.options.periodicIntervalMs??DAY);this.periodic.unref?.();
     })();
     return this.initialized;
   }
@@ -204,7 +226,7 @@ export class UpdaterService {
   async check():Promise<UpdateState> {
     if(this.disposed)return this.getState();
     if(this.checkTask)return this.checkTask;
-    if(this.downloadTask||this.installTask||this.installing||this.state.status==='downloaded')return this.getState();
+    if(this.downloadTask||this.installTask||this.applyTask||this.installing||this.state.status==='downloaded')return this.getState();
     this.checkTask=this.performCheck().finally(()=>{this.checkTask=undefined;});return this.checkTask;
   }
   private async performCheck():Promise<UpdateState> {
@@ -254,33 +276,34 @@ export class UpdaterService {
     this.downloadTask=this.performDownload().finally(()=>{this.downloadTask=undefined;this.token=undefined;});return this.downloadTask;
   }
   private async performDownload():Promise<UpdateState> {
-    const info=this.info!,expected=manifestFile(info);
+    const info=this.info!,expected=manifestFile(info),epoch=this.applyEpoch;
+    const assertDownloadAllowed=()=>{this.assertActive();if(epoch!==this.applyEpoch)throw Object.assign(new Error('cancelled'),{code:'CANCELLED'});};
     let started=false;
     try {
       await this.prepareCache();
-      this.assertActive();
+      assertDownloadAllowed();
       await this.filesIn(this.cache);
-      this.assertActive();
+      assertDownloadAllowed();
       const previous=await this.readReceipt();
-      this.assertActive();
+      assertDownloadAllowed();
       if(previous&&await (this.options.installerBusy||defaultInstallerBusy)(previous.file)){
         this.emit({status:'error',errorCode:'install',message:'安装程序仍在运行，请完成或关闭安装程序后重试'});return this.getState();
       }
-      this.assertActive();
+      assertDownloadAllowed();
       this.token=this.options.cancellationFactory?.()||new (require('builder-util-runtime').CancellationToken)();
       started=true;
       this.emit({status:'downloading',errorCode:undefined,message:'正在下载并校验安装包',progress:{percent:0,bytesPerSecond:0,transferred:0,total:0}});
       const files=await this.native!.downloadUpdate(this.token!);
-      this.assertActive();
+      assertDownloadAllowed();
       if(this.token!.cancelled)throw Object.assign(new Error('cancelled'),{code:'CANCELLED'});
       if(files.length!==1||!this.isExpectedFile(files[0],expected.file))throw Object.assign(new Error('校验失败'),{code:'ERR_UPDATER_INVALID_UPDATE_INFO'});
       await this.assertSafeFile(files[0]);
-      this.assertActive();
+      assertDownloadAllowed();
       const actual=await (this.options.hashFile||defaultHashFile)(files[0]);
-      this.assertActive();
+      assertDownloadAllowed();
       if(actual!==expected.sha512)throw Object.assign(new Error('校验失败'),{code:'ERR_UPDATER_CHECKSUM_MISMATCH'});
       if(this.token!.cancelled)throw Object.assign(new Error('cancelled'),{code:'CANCELLED'});
-      const receipt:Receipt={version:info.version,...expected,phase:'downloaded',at:this.now()};await this.saveReceipt(receipt);this.assertActive();
+      const receipt:Receipt={version:info.version,...expected,phase:'downloaded',at:this.now()};await this.saveReceipt(receipt);assertDownloadAllowed();
       this.receipt=receipt;
       this.emit({status:'downloaded',installable:true,message:'安装包已通过 SHA-512 校验，点击安装并重启',progress:undefined});
     }catch(error){
@@ -291,32 +314,66 @@ export class UpdaterService {
     }
     return this.getState();
   }
-  cancel():UpdateState {if(this.state.status==='downloading')this.token?.cancel();return this.getState();}
-  async install():Promise<UpdateState> {
+  /** One explicit click authorizes this task only; cached downloads never auto-install. */
+  apply():Promise<UpdateState> {
+    if(this.applyTask)return this.applyTask;
+    if(this.disposed||!this.available()||this.state.manualOnly||this.installing||(!this.getState().canDownload&&!['downloaded','downloading'].includes(this.state.status)))return Promise.resolve(this.getState());
+    const epoch=++this.applyEpoch;
+    const task=Promise.resolve().then(async()=>{
+      const allowed=()=>!this.disposed&&epoch===this.applyEpoch;
+      if(!allowed())return this.getState();
+      const downloaded=this.state.status==='downloaded'?this.getState():await this.download();
+      if(!allowed()){
+        if(!this.disposed&&downloaded.status==='downloaded')this.emit({message:'已取消自动安装，已校验的更新包已保留'});
+        return this.getState();
+      }
+      if(downloaded.status!=='downloaded')return this.getState();
+      return this.install(allowed);
+    }).finally(()=>{if(this.applyTask===task){this.applyTask=undefined;this.emit({});}}).then(()=>this.getState());
+    this.applyTask=task;
+    this.emit({});
+    return task;
+  }
+  cancel():UpdateState {
+    if(this.disposed||this.installing)return this.getState();
+    this.applyEpoch++;
+    if(this.state.status==='downloading')this.token?.cancel();
+    return this.getState();
+  }
+  async install(allowed?:()=>boolean):Promise<UpdateState> {
     if(this.installTask)return this.installTask;
     if(this.disposed||!this.available()||this.installing||this.state.status!=='downloaded'||!this.receipt||this.receipt.phase!=='downloaded')return this.getState();
-    this.installTask=this.performInstall({...this.receipt},this.native!).finally(()=>{this.installTask=undefined;});return this.installTask;
+    const epoch=this.applyEpoch;
+    this.installTask=this.performInstall({...this.receipt},this.native!,allowed||(()=>epoch===this.applyEpoch)).finally(()=>{this.installTask=undefined;});return this.installTask;
   }
-  private async performInstall(receipt:Receipt,native:NativeUpdater):Promise<UpdateState> {
+  private async performInstall(receipt:Receipt,native:NativeUpdater,allowed:()=>boolean):Promise<UpdateState> {
+    let preparing=false;
+    const assertAllowed=()=>{this.assertActive();if(!allowed())throw Object.assign(new Error('cancelled'),{code:'CANCELLED'});};
     try {
       const file=path.join(this.cache,'pending',receipt.file);
       await this.assertSafeFile(file);
-      this.assertActive();
-      const actual=await (this.options.hashFile||defaultHashFile)(file);this.assertActive();
+      assertAllowed();
+      preparing=true;
+      await this.options.beforeInstall?.();assertAllowed();
+      preparing=false;
+      // Editor persistence may take time. Recheck the cache and bytes after it,
+      // immediately before handing the package to the native installer.
+      await this.assertSafeFile(file);assertAllowed();
+      const actual=await (this.options.hashFile||defaultHashFile)(file);assertAllowed();
       if(actual!==receipt.sha512)throw Object.assign(new Error('校验失败'),{code:'ERR_UPDATER_CHECKSUM_MISMATCH'});
-      const installing:Receipt={...receipt,phase:'installing',at:this.now()};await this.saveReceipt(installing);this.assertActive();
+      const installing:Receipt={...receipt,phase:'installing',at:this.now()};await this.saveReceipt(installing);assertAllowed();
       this.receipt=installing;
-      this.installing=true;this.emit({status:'installing',message:'正在启动安装程序，请按安装向导完成更新'});
+      this.installing=true;this.emit({status:'installing',message:'正在安装更新，完成后自动重启',errorCode:undefined});
       this.assertActive();native.quitAndInstall(false,true);
     }catch(error){
       this.installing=false;
       if(this.disposed)return this.getState();
       if(verificationError(error)){this.receipt=undefined;await this.clearPending().catch(()=>{});this.emit({status:'error',errorCode:'verification',message:'安装包校验失败，已删除，请重新下载'});}
-      else {this.receipt=receipt;await this.saveReceipt(receipt).catch(()=>{});if(!this.disposed){native.resetAfterInstallError?.();this.emit({status:'downloaded',errorCode:'install',message:'无法启动安装程序，请重试安装'});}}
+      else {this.receipt=receipt;await this.saveReceipt(receipt).catch(()=>{});if(!this.disposed){native.resetAfterInstallError?.();this.emit({status:'downloaded',errorCode:errorCode(error)==='CANCELLED'?undefined:preparing?'prepare':'install',message:errorCode(error)==='CANCELLED'?'已取消自动安装，已校验的更新包已保留':preparing?'当前编辑内容未能保存，更新尚未安装，请稍后重试':'无法启动安装程序，请重试安装'});}}
     }
     return this.getState();
   }
-  dispose() {this.disposed=true;this.lifecycle.abort();this.releaseController?.abort();clearTimeout(this.timer);clearTimeout(this.cleanupRetry);clearInterval(this.periodic);this.token?.cancel();for(const {event,listener} of this.listeners)this.native?.removeListener(event,listener);}
+  dispose() {this.disposed=true;this.lifecycle.abort();this.releaseController?.abort();clearTimeout(this.timer);clearTimeout(this.cleanupRetry);clearInterval(this.periodic);clearInterval(this.periodicCheck);this.token?.cancel();for(const {event,listener} of this.listeners)this.native?.removeListener(event,listener);}
 
   private async prepareCache() {
     await this.io.mkdir(this.options.userDataDirectory,{recursive:true});

@@ -68,6 +68,12 @@ function dom(html: string, url = 'https://www.nodeseek.com/') {
 }
 const rootFixture='<div class="nsk-post-wrapper"><h1><a class="post-title-link">Thread</a></h1><div class="content-item" id="0"><div class="nsk-content-meta-info"><a class="author-name" href="/space/42">Owner</a></div><article class="post-content"><p>Root body</p></article></div></div>';
 
+test('hidden forum text and floors remain hidden after style sanitization while report tabs are retained',()=>{
+  const body='<p>Visible</p><p style="display:none">DISPLAY_HIDDEN</p><div style="visibility:hidden"><b>VISIBILITY_HIDDEN</b></div><div class="css-hidden">CSS_HIDDEN</div><div class="nsk-magic-tabs"><div class="nsk-magic-tab-body" hidden style="display:none"><pre>COMPLETE_REPORT</pre></div></div>';
+  const page=dom('<style>.css-hidden{display:none}</style><div id="nsk-body-left">'+rootFixture.replace('<p>Root body</p>',body)+'<ul class="comments"><li class="content-item" id="1" aria-hidden="true"><article class="post-content">FLOOR_HIDDEN</article></li><li class="content-item" id="2" style="display:none"><article class="post-content">FLOOR_CSS_HIDDEN</article></li></ul></div>','https://www.nodeseek.com/post-123-1');
+  try{const result=page.window.eval(extractThreadScript);const html=sanitizeContent(result.comments[0].html);assert.deepEqual(Array.from(result.comments,(comment:any)=>comment.id),['0']);assert.match(html,/Visible/);assert.match(html,/COMPLETE_REPORT/);assert.doesNotMatch(html,/DISPLAY_HIDDEN|VISIBILITY_HIDDEN|CSS_HIDDEN|FLOOR_HIDDEN/);}finally{page.window.close();}
+});
+
 test('real page links retain direct first and last navigation without accepting other threads or hosts',()=>{
   const page=dom(`<div id="nsk-body-left">${rootFixture}<nav class="pagination"><a href="/post-123-1">1</a><a href="/post-123-2">2</a><a href="/post-123-4" rel="last">4</a><a href="/post-999-5">5</a><a href="https://evil.test/post-123-6">6</a></nav></div>`,'https://www.nodeseek.com/post-123-3');
   try {const result=page.window.eval(extractThreadScript);assert.deepEqual(Array.from(result.pages,(link:any)=>link.number),[1,2,3,4]);assert.equal(result.nextPage,4);assert.equal(result.totalPages,4);}finally{page.window.close();}

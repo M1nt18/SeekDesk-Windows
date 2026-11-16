@@ -1,13 +1,27 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { SeekDeskAPI, AccountState, OfficialViewState } from '../shared/types';
 
+const updatePreparers=new Set<()=>Promise<void>>();
+ipcRenderer.on('app:update-prepare',(_event,requestId:unknown)=>{
+  if(!Number.isSafeInteger(requestId)||Number(requestId)<=0)return;
+  void Promise.resolve().then(async()=>{
+    if(!updatePreparers.size)throw new Error('Renderer is not ready');
+    await Promise.all([...updatePreparers].map(prepare=>prepare()));
+  }).then(()=>ipcRenderer.invoke('app:update-prepared',requestId,true),()=>ipcRenderer.invoke('app:update-prepared',requestId,false)).catch(()=>{});
+});
+
 const api: SeekDeskAPI = {
   getDesktopPreferences: () => ipcRenderer.invoke('app:desktop-preferences'),
   setCloseBehavior: behavior => ipcRenderer.invoke('app:close-behavior',behavior),
+  setAutomaticUpdates: enabled => ipcRenderer.invoke('app:automatic-updates',enabled),
   getUpdateState: () => ipcRenderer.invoke('app:update-state'),
   downloadUpdate: () => ipcRenderer.invoke('app:update-download'),
   cancelUpdate: () => ipcRenderer.invoke('app:update-cancel'),
   installUpdate: () => ipcRenderer.invoke('app:update-install'),
+  applyUpdate: () => ipcRenderer.invoke('app:update-apply'),
+  onBeforeUpdateInstall: callback => {updatePreparers.add(callback);return()=>{updatePreparers.delete(callback);};},
+  readReadingLibrary: owner => ipcRenderer.invoke('library:read',owner),
+  mutateReadingLibrary: (request,owner) => ipcRenderer.invoke('library:mutate',request,owner),
   onUpdateChange: callback => {const handler=(_event:Electron.IpcRendererEvent,state:Parameters<typeof callback>[0])=>callback(state);ipcRenderer.on('app:update-change',handler);return()=>ipcRenderer.removeListener('app:update-change',handler);},
   openCalculator: () => ipcRenderer.invoke('tool:calculator'),
   queryForum: request => ipcRenderer.invoke('parity:query',request),

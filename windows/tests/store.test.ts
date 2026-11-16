@@ -5,6 +5,23 @@ import os from 'node:os';
 import path from 'node:path';
 import {Store,defaults,validateSettings,validateWorkspace,validateBlockedUsers} from '../electron/store';
 
+test('stream reading anchors preserve the exact in-floor offset across a restart',async()=>{
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-reading-anchor-'));
+  try {
+    const original=new Store(directory);
+    original.workspace=validateWorkspace({tabs:[{url:'https://www.nodeseek.com/post-42-3#10',title:'Thread'}],activeId:'42',readingAnchors:{42:{floor:'10',page:3,offset:-1420.5}},scrollPositions:{42:0}});
+    await original.save();const restored=new Store(directory);await restored.load();
+    assert.deepEqual(restored.workspace.readingAnchors,{42:{floor:'10',page:3,offset:-1420.5}});
+  }finally{await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('reading anchors reject mismatched pages, floors, unsafe offsets and unknown tabs',()=>{
+  const base={tabs:[{url:'https://www.nodeseek.com/post-42-3#10',title:'Thread'}],activeId:'42'};
+  for(const anchor of [{floor:'11',page:3,offset:0},{floor:'10',page:4,offset:0},{floor:'10',page:3,offset:Infinity},{floor:'10',page:3,offset:NaN},{floor:'../../file',page:3,offset:0},{floor:'10',page:3,offset:100000001}])assert.equal(validateWorkspace({...base,readingAnchors:{42:anchor}}).readingAnchors,undefined);
+  assert.equal(validateWorkspace({...base,readingAnchors:{99:{floor:'10',page:3,offset:0}}}).readingAnchors,undefined);
+  assert.deepEqual(validateWorkspace({...base,readingAnchors:{42:{floor:'10',page:3,offset:-2,private:'drop'}}}).readingAnchors,{42:{floor:'10',page:3,offset:-2}});
+});
+
 test('preference validation rejects invalid types and strips untrusted private post data',()=>{
   assert.throws(()=>validateSettings({...defaults,fontSize:1000}));
   assert.throws(()=>validateSettings({...defaults,restoreTabs:'yes'}));

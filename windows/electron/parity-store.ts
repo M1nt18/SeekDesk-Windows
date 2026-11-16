@@ -2,12 +2,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type {ConversationContact,DraftValue,ExtensionsState,ParitySettings,SearchHistory} from '../shared/parity';
 import {defaultExtensions,sanitizeExtensions} from './extensions';
+import {SIDEBAR_STANDARD,SIDEBAR_MIN,SIDEBAR_MAX,clampSidebarWidth} from '../shared/layout';
 
-export const appearanceDefaults:ParitySettings={brand:'blue',readerGradient:true,sidebarWidth:250,listWidth:370,listFontSize:16,authorFontSize:100,boardFontSize:15,rankingFontSize:14,nqScale:100,tqScale:100,sendShortcut:'ctrl-enter',composerMode:'split',notificationPolling:true,autoRefresh:true,autoLoadOlder:false};
+export const appearanceDefaults:ParitySettings={brand:'blue',readerGradient:true,sidebarWidth:SIDEBAR_STANDARD,listWidth:370,listFontSize:16,authorFontSize:100,boardFontSize:15,rankingFontSize:14,nqScale:100,tqScale:100,sendShortcut:'ctrl-enter',composerMode:'split',notificationPolling:true,autoRefresh:true,autoLoadOlder:false};
 export function validateAppearance(input:unknown):ParitySettings{
   if(!input||typeof input!=='object')throw new Error('外观设置无效');const row=input as Record<string,unknown>,result={...appearanceDefaults};
-  const numbers={sidebarWidth:[190,390],listWidth:[280,640],listFontSize:[14,28],authorFontSize:[80,160],boardFontSize:[13,24],rankingFontSize:[13,24],nqScale:[25,200],tqScale:[50,200]} as const;
-  for(const [key,[min,max]] of Object.entries(numbers)){const value=row[key]??appearanceDefaults[key as keyof ParitySettings];if(typeof value!=='number'||!Number.isFinite(value)||value<min||value>max)throw new Error('外观尺寸无效');(result as unknown as Record<string,unknown>)[key]=value;}
+  const numbers={sidebarWidth:[SIDEBAR_MIN,SIDEBAR_MAX],listWidth:[280,640],listFontSize:[14,28],authorFontSize:[80,160],boardFontSize:[13,24],rankingFontSize:[13,24],nqScale:[25,200],tqScale:[50,200]} as const;
+  for(const [key,[min,max]] of Object.entries(numbers)){const raw=row[key]??appearanceDefaults[key as keyof ParitySettings],value=key==='sidebarWidth'&&typeof raw==='number'&&Number.isFinite(raw)?clampSidebarWidth(raw):raw;if(typeof value!=='number'||!Number.isFinite(value)||value<min||value>max)throw new Error('外观尺寸无效');(result as unknown as Record<string,unknown>)[key]=value;}
   for(const key of ['readerGradient','notificationPolling','autoRefresh','autoLoadOlder'] as const){if(row[key]!==undefined&&typeof row[key]!=='boolean')throw new Error('外观开关无效');result[key]=(row[key]??appearanceDefaults[key]) as boolean;}
   if(row.brand!==undefined&&!['blue','teal','green','purple','orange','red'].includes(String(row.brand)))throw new Error('图标颜色无效');
   if(row.sendShortcut!==undefined&&!['ctrl-enter','enter','button-only'].includes(String(row.sendShortcut)))throw new Error('发送快捷键无效');

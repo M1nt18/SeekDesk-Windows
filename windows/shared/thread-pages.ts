@@ -12,6 +12,10 @@ export interface ThreadPaginationInput {
 
 export type ThreadPageItem = number | 'ellipsis';
 
+export function hasThreadPagination(input:ThreadPaginationInput):boolean {
+  return getThreadPagination(input).items.some(item=>typeof item==='number'&&item>1);
+}
+
 const isPage = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
 

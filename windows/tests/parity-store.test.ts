@@ -69,13 +69,13 @@ test('appearance and search history reject nonfinite data while retaining valid 
   assert.throws(()=>validateHistory(Array.from({length:31},()=>entry)),/历史/);
 });
 test('all UI appearance slider bounds persist with percent scales unchanged',async()=>temporary(async directory=>{
-  const bounds={sidebarWidth:[190,390],listWidth:[280,640],listFontSize:[14,28],authorFontSize:[80,160],boardFontSize:[13,24],rankingFontSize:[13,24],nqScale:[25,200],tqScale:[50,200]};
+  const bounds={sidebarWidth:[184,360],listWidth:[280,640],listFontSize:[14,28],authorFontSize:[80,160],boardFontSize:[13,24],rankingFontSize:[13,24],nqScale:[25,200],tqScale:[50,200]};
   for(const edge of [0,1]){
     const input={...appearanceDefaults,...Object.fromEntries(Object.entries(bounds).map(([key,range])=>[key,range[edge]]))};
     const store=new ParityStore(directory);store.appearance=validateAppearance(input);await store.save();
     const reloaded=new ParityStore(directory);await reloaded.load();assert.deepEqual(reloaded.appearance,input);
   }
-  for(const [key,[lower,upper]] of Object.entries(bounds)){assert.throws(()=>validateAppearance({...appearanceDefaults,[key]:lower-1}));assert.throws(()=>validateAppearance({...appearanceDefaults,[key]:upper+1}));}
+  for(const [key,[lower,upper]] of Object.entries(bounds)){if(key==='sidebarWidth'){assert.equal(validateAppearance({...appearanceDefaults,[key]:lower-1}).sidebarWidth,lower);assert.equal(validateAppearance({...appearanceDefaults,[key]:upper+1}).sidebarWidth,upper);}else{assert.throws(()=>validateAppearance({...appearanceDefaults,[key]:lower-1}));assert.throws(()=>validateAppearance({...appearanceDefaults,[key]:upper+1}));}}
 }));
 
 test('older conversation contacts survive restart, deduplicate, keep names and remain account isolated',async()=>temporary(async directory=>{

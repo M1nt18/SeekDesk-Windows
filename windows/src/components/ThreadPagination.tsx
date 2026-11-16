@@ -10,6 +10,7 @@ export interface ThreadPaginationProps extends ThreadPaginationInput {
 
 export function ThreadPagination({loading, onPage, label = '帖子分页', ...input}: ThreadPaginationProps) {
   const {page, previousPage, nextPage, items} = getThreadPagination(input);
+  if(!items.some(item=>typeof item==='number'&&item>1))return null;
   const changePage = (target: number | null) => {
     if (!loading && target !== null && target !== page) onPage(target);
   };

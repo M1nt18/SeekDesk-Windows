@@ -30,7 +30,15 @@ export function validateWorkspace(value: unknown): SavedWorkspace {
   });
   const scrollPositions:Record<string,number>={};
   if(v.scrollPositions&&typeof v.scrollPositions==='object')for(const [id,value] of Object.entries(v.scrollPositions)){if(seen.has(id)&&Number.isFinite(value)&&value>=0&&value<=100000000)scrollPositions[id]=value;}
-  return {tabs, activeId: typeof v.activeId === 'string' && seen.has(v.activeId) ? v.activeId : null,overviewOpen:typeof v.overviewOpen==='boolean'?v.overviewOpen:true,listHidden:v.listHidden===true,scrollPositions};
+  const readingAnchors:NonNullable<SavedWorkspace['readingAnchors']>={};
+  if(v.readingAnchors&&typeof v.readingAnchors==='object'&&!Array.isArray(v.readingAnchors))for(const [id,value] of Object.entries(v.readingAnchors)){
+    const tab=tabs.find(tab=>tab.id===id);
+    if(!tab||!value||typeof value!=='object'||typeof value.floor!=='string'||!/^(?:0|[1-9]\d{0,8})$/.test(value.floor)||!Number.isSafeInteger(value.page)||value.page<1||value.page>100000||typeof value.offset!=='number'||!Number.isFinite(value.offset)||Math.abs(value.offset)>100000000)continue;
+    const location=new URL(tab.url);
+    if(Number(location.pathname.match(/-(\d+)$/)?.[1])!==value.page||location.hash.replace(/^#(?:comment-)?/,'')!==value.floor)continue;
+    readingAnchors[id]={floor:value.floor,page:value.page,offset:value.offset};
+  }
+  return {tabs, activeId: typeof v.activeId === 'string' && seen.has(v.activeId) ? v.activeId : null,overviewOpen:typeof v.overviewOpen==='boolean'?v.overviewOpen:true,listHidden:v.listHidden===true,scrollPositions,...(Object.keys(readingAnchors).length?{readingAnchors}:{})};
 }
 export class Store {
   settings: Settings = {...defaults};

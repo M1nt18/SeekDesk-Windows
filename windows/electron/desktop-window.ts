@@ -3,7 +3,7 @@ import path from 'node:path';
 import type {BrowserWindowConstructorOptions, MenuItemConstructorOptions, MessageBoxOptions, NativeImage, Rectangle} from 'electron';
 
 export type CloseBehavior = 'ask' | 'tray' | 'quit';
-export interface DesktopWindowPreferences {closeBehavior: CloseBehavior}
+export interface DesktopWindowPreferences {closeBehavior: CloseBehavior;automaticUpdates?:boolean}
 interface WindowState extends DesktopWindowPreferences {bounds?: Rectangle; maximized: boolean}
 
 interface AppPort {
@@ -91,7 +91,8 @@ export function fitWindowBounds(saved: Rectangle | undefined, displays: Rectangl
 
 /** Owns only the main window's placement, close preference, and tray lifecycle. */
 export class DesktopWindowController {
-  private state: WindowState = {maximized:false,closeBehavior:'ask'};
+  private state: WindowState = {maximized:false,closeBehavior:'ask',automaticUpdates:true};
+  private automaticPreferenceVersion=0;
   private window?: WindowPort;
   private tray?: TrayPort;
   private timer?: ReturnType<typeof setTimeout>;
@@ -139,7 +140,7 @@ export class DesktopWindowController {
       const value: unknown = JSON.parse(await fs.readFile(controller.filename,'utf8'));
       if (value && typeof value === 'object') {
         const source = value as Record<string, unknown>;
-        controller.state = {bounds:rectangle(source.bounds),maximized:source.maximized === true,closeBehavior:validBehavior(source.closeBehavior) ? source.closeBehavior : 'ask'};
+        controller.state = {bounds:rectangle(source.bounds),maximized:source.maximized === true,closeBehavior:validBehavior(source.closeBehavior) ? source.closeBehavior : 'ask',automaticUpdates:source.automaticUpdates!==false};
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') controller.report(error);
@@ -166,12 +167,21 @@ export class DesktopWindowController {
     if (this.state.maximized && this.window && !this.window.isDestroyed()) this.window.maximize();
   }
 
-  getPreferences(): DesktopWindowPreferences {return {closeBehavior:this.state.closeBehavior};}
+  getPreferences(): DesktopWindowPreferences {return {closeBehavior:this.state.closeBehavior,...(this.state.automaticUpdates===false?{automaticUpdates:false}:{})};}
 
   async setCloseBehavior(value: unknown): Promise<DesktopWindowPreferences> {
     if (!validBehavior(value)) throw new Error('关闭窗口行为无效');
     this.state.closeBehavior = value;
     await this.flush();
+    return this.getPreferences();
+  }
+
+  async setAutomaticUpdates(value:unknown):Promise<DesktopWindowPreferences> {
+    if(typeof value!=='boolean')throw new Error('自动更新检查设置无效');
+    const previous=this.state.automaticUpdates,version=++this.automaticPreferenceVersion;
+    this.state.automaticUpdates=value;
+    try{await this.flush();}
+    catch(error){if(version===this.automaticPreferenceVersion){this.state.automaticUpdates=previous;await this.flush().catch(()=>{});}throw error;}
     return this.getPreferences();
   }
 

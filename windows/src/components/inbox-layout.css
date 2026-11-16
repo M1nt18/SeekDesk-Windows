@@ -1,0 +1,30 @@
+.notifications-page .inbox-master-detail{width:100%;min-width:0}
+.notifications-page .inbox-master-detail>.notification-list{background:var(--sidebar);width:37%;min-width:224px;max-width:340px}
+.inbox-conversation-detail{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+.conversation-heading{display:flex;align-items:center;gap:10px;padding:14px;border-bottom:1px solid var(--line);background:var(--surface-alt)}
+.conversation-heading strong{flex:1;min-width:0;overflow-wrap:anywhere}
+.conversation-heading .text-button{flex-shrink:0}
+.inbox-conversation-detail>.conversation-scroll{flex:1;min-height:100px;overflow:auto}
+.inbox-conversation-detail>.message-compose{flex-shrink:0;max-height:52%;overflow:auto}
+.notifications-page .notification-row{flex-wrap:wrap;min-width:0}
+.notifications-page .notification-row.unread:not(.selected){background:transparent}
+.notifications-page .notification-row:hover:not(.selected){background:var(--hover)}
+.notifications-page .notification-row.selected{box-shadow:none;background:var(--accent-soft)}
+.notifications-page .conversation-row{padding:0 5px 0 0;gap:0}
+.conversation-select{display:flex;align-items:center;gap:10px;flex:1;min-width:0;padding:11px 8px;text-align:left;color:inherit}
+.conversation-select>span:not(.avatar){flex:1;min-width:0;overflow-wrap:anywhere}
+.conversation-select>svg{flex-shrink:0}
+.conversation-select p{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:5px 0;color:var(--secondary);font-size:max(12px,.8rem)}
+.conversation-select small{font-size:max(12px,.72rem);color:var(--muted)}
+.inbox-read-button{display:flex;align-items:center;justify-content:center;flex-shrink:0;width:27px;height:27px;border-radius:50%;padding:4px;color:#d95559}
+.inbox-read-button:hover{background:color-mix(in srgb,#d95559 12%,transparent)}
+.inbox-read-button .unread-dot{width:8px;height:8px;margin:0;border-radius:50%;background:#d95559;display:block;flex-shrink:0}
+.inbox-read-button .unread-dot{box-shadow:0 0 0 4px color-mix(in srgb,#d95559 17%,transparent)}
+.inbox-read-slot{display:flex;align-items:center;justify-content:center;width:27px;height:29px;flex-shrink:0}
+.inbox-read-confirmed{display:flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;color:#fff;background:#329a67}
+.inbox-read-error{flex-basis:100%;font-size:max(12px,.72rem);padding:3px 8px 7px;color:var(--danger,#c7525c);line-height:1.55}
+.inbox-peer-lookup{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;padding:5px 3px 11px;position:sticky;top:-8px;z-index:1;background:var(--sidebar)}
+.inbox-peer-lookup input{min-width:0;width:100%;font:inherit;font-size:max(12px,.8rem);padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--text)}
+.inbox-peer-lookup button{font-size:max(12px,.76rem);padding:5px 8px}
+.inbox-peer-lookup small{grid-column:1/-1;color:var(--danger,#c7525c);font-size:max(12px,.73rem)}
+@media(max-width:900px){.notifications-page .inbox-master-detail>.notification-list{width:100%;min-width:0;max-width:none;max-height:32%;flex:0 0 auto}.inbox-conversations{overflow:hidden}.inbox-conversation-detail{flex:1;min-height:230px}.conversation-heading{padding:10px}.inbox-conversation-detail>.message-compose{max-height:52%;padding:10px}.conversation-select{padding:8px}.inbox-read-button{width:30px;height:30px}}

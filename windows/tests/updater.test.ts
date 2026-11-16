@@ -43,6 +43,118 @@ function missing(){return Object.assign(new Error('sensitive native error C:\\pr
 function response(version='v0.2.0',extra:Record<string,unknown>={}) {return {ok:true,status:200,async json(){return {tag_name:version,draft:false,prerelease:false,published_at:'2026-11-11T12:00:00Z',...extra};}};}
 function deferred<T=void>() {let resolve!:(value:T|PromiseLike<T>)=>void;const promise=new Promise<T>(r=>resolve=r);return {promise,resolve};}
 
+test('automatic checks can be disabled and resumed while maintenance and explicit checks continue',async()=>{
+  const f=await fixture({automaticChecks:false,automaticCheckDelayMs:10,periodicIntervalMs:15});let maintenance=0;
+  const cleanup=f.service.cleanup.bind(f.service);f.service.cleanup=async()=>{maintenance++;await cleanup();};
+  const pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
+  try{
+    await pause(55);assert.equal(f.native.checks,0);assert.ok(maintenance>0,'Cache maintenance must run with automatic checks off');assert.equal(f.service.getState().automaticChecks,false);
+    f.service.setAutomaticChecks(true);
+    const deadline=Date.now()+2000;while(!f.native.checks&&Date.now()<deadline)await pause(5);
+    assert.ok(f.native.checks>0);assert.equal(f.service.getState().automaticChecks,true);
+    f.service.setAutomaticChecks(false);const checks=f.native.checks;
+    await pause(50);assert.equal(f.native.checks,checks);
+    await f.service.check();assert.equal(f.native.checks,checks+1);
+    assert.throws(()=>f.service.setAutomaticChecks('false'),/自动更新检查设置无效/);assert.equal(f.service.getState().automaticChecks,false);
+  }finally{await f.close();}
+});
+
+test('turning automatic checks off never cancels an explicitly authorized apply task',async()=>{
+  const entered=deferred(),release=deferred();const f=await fixture({beforeInstall:async()=>{entered.resolve();await release.promise;}});
+  try{await f.service.check();const applying=f.service.apply();await entered.promise;f.service.setAutomaticChecks(false);release.resolve();assert.equal((await applying).status,'installing');assert.equal(f.native.downloads,1);assert.equal(f.native.installCalls.length,1);assert.equal(f.service.getState().automaticChecks,false);}finally{release.resolve();await f.close();}
+});
+
+test('one explicit apply downloads, validates, saves and installs once even with repeated clicks',async()=>{
+  const order:string[]=[],states:boolean[]=[];
+  const f=await fixture({beforeInstall:async()=>{order.push('save');},onChange:state=>states.push(state.applying===true)});
+  try{
+    await f.service.check();
+    f.native.downloadAction=async()=>{order.push('download');const file=path.join(f.cache,'pending',fileName);await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,payload);return [file];};
+    f.native.quitAndInstall=(...args:unknown[])=>{order.push('install');f.native.installCalls.push(args);};
+    const first=f.service.apply(),second=f.service.apply();assert.equal(first,second);assert.equal(f.service.getState().applying,true);
+    const result=await first;
+    assert.equal(result.status,'installing');assert.equal(result.applying,false);
+    assert.deepEqual(order,['download','save','install']);assert.equal(f.native.downloads,1);assert.deepEqual(f.native.installCalls,[[false,true]]);
+    assert.ok(states.includes(true));assert.equal(states.at(-1),false);
+  }finally{await f.close();}
+});
+
+test('restored downloads remain passive until apply and then install without another download',async()=>{
+  const f=await fixture();let restarted:UpdaterService|undefined;
+  try{
+    await f.service.check();await f.service.download();assert.equal(f.native.installCalls.length,0);f.service.dispose();
+    let native:FakeNative|undefined,saves=0;
+    restarted=new UpdaterService({currentVersion:'0.1.0',isPackaged:true,isInstalled:true,userDataDirectory:f.directory,automaticCheckDelayMs:60_000,installerBusy:async()=>false,nativeFactory:cache=>native=new FakeNative(cache),beforeInstall:async()=>{saves++;}});
+    await restarted.initialize();assert.equal(restarted.getState().status,'downloaded');assert.equal(native!.installCalls.length,0);assert.equal(saves,0);
+    assert.equal((await restarted.apply()).status,'installing');assert.equal(native!.downloads,0);assert.equal(native!.installCalls.length,1);assert.equal(saves,1);
+  }finally{restarted?.dispose();await f.close();}
+});
+
+test('cancelling before the apply microtask starts never downloads or installs',async()=>{
+  const f=await fixture();try{await f.service.check();const task=f.service.apply();f.service.cancel();await task;assert.equal(f.native.downloads,0);assert.equal(f.native.installCalls.length,0);assert.equal(f.service.getState().applying,false);}finally{await f.close();}
+});
+
+for(const boundary of ['download-hash','download-receipt','install-hash','prepare','install-receipt'] as const){
+  test(`cancelling at ${boundary} prevents automatic installation and permits explicit retry`,async()=>{
+    const entered=deferred(),gate=deferred();let hashes=0,armed=true;
+    const hold=async()=>{if(armed){armed=false;entered.resolve();await gate.promise;}};
+    const io={...fs,writeFile:async(...args:any[])=>{
+      if(String(args[0]).endsWith('seekdesk-update.json.next')){
+        const phase=JSON.parse(String(args[1])).phase;
+        if((boundary==='download-receipt'&&phase==='downloaded')||(boundary==='install-receipt'&&phase==='installing'))await hold();
+      }
+      return (fs.writeFile as any)(...args);
+    }};
+    const f=await fixture({fileSystem:io,hashFile:async()=>{hashes++;if((boundary==='download-hash'&&hashes===1)||(boundary==='install-hash'&&hashes===2))await hold();return hash;},beforeInstall:async()=>{if(boundary==='prepare')await hold();}});
+    try{
+      await f.service.check();const task=f.service.apply();await entered.promise;f.service.cancel();gate.resolve();await task;
+      assert.equal(f.native.installCalls.length,0);assert.equal(f.service.getState().applying,false);
+      if(f.service.getState().status==='downloaded'){const receipt=JSON.parse(await fs.readFile(path.join(f.cache,'seekdesk-update.json'),'utf8'));assert.equal(receipt.phase,'downloaded');}
+      assert.equal((await f.service.apply()).status,'installing');assert.equal(f.native.installCalls.length,1);
+    }finally{gate.resolve();await f.close();}
+  });
+}
+
+for(const boundary of ['download-hash','prepare','install-receipt'] as const){
+  test(`disposing at ${boundary} never launches an installer or emits later completion`,async()=>{
+    const entered=deferred(),gate=deferred();let hashes=0,armed=true,changes=0;
+    const hold=async()=>{if(armed){armed=false;entered.resolve();await gate.promise;}};
+    const io={...fs,writeFile:async(...args:any[])=>{if(boundary==='install-receipt'&&String(args[0]).endsWith('seekdesk-update.json.next')&&JSON.parse(String(args[1])).phase==='installing')await hold();return (fs.writeFile as any)(...args);}};
+    const f=await fixture({fileSystem:io,onChange:()=>{changes++;},hashFile:async()=>{hashes++;if(boundary==='download-hash'&&hashes===1)await hold();return hash;},beforeInstall:async()=>{if(boundary==='prepare')await hold();}});
+    try{await f.service.check();const task=f.service.apply();await entered.promise;f.service.dispose();const before=changes;gate.resolve();await task;assert.equal(f.native.installCalls.length,0);assert.equal(changes,before);}finally{gate.resolve();await f.close();}
+  });
+}
+
+test('a failed editor save preserves the verified package and requires a new explicit apply',async()=>{
+  let saves=0;const f=await fixture({beforeInstall:async()=>{if(++saves===1)throw new Error('private draft data must never leave this test');}});
+  try{
+    await f.service.check();const result=await f.service.apply();assert.equal(result.status,'downloaded');assert.equal(result.errorCode,'prepare');assert.equal(result.applying,false);
+    assert.equal(f.native.installCalls.length,0);assert.equal(f.native.downloads,1);assert.doesNotMatch(JSON.stringify(result),/private draft/);
+    assert.deepEqual(await fs.readFile(path.join(f.cache,'pending',fileName)),payload);
+    assert.equal((await f.service.apply()).status,'installing');assert.equal(f.native.downloads,1);assert.equal(f.native.installCalls.length,1);
+  }finally{await f.close();}
+});
+
+test('a native install refusal after apply restores retry state without an automatic install loop',async()=>{
+  const f=await fixture();try{
+    await f.service.check();f.native.quitAndInstall=(...args:unknown[])=>{f.native.installCalls.push(args);f.native.emit('error',new Error('native failure with a private path'));};
+    const result=await f.service.apply();assert.equal(result.status,'downloaded');assert.equal(result.errorCode,'install');assert.equal(result.applying,false);
+    await f.service.check();assert.equal(f.native.installCalls.length,1);assert.equal(f.native.downloads,1);
+  }finally{await f.close();}
+});
+
+test('cancelling while the download cache is being prepared prevents the network request from starting',async()=>{
+  const entered=deferred(),gate=deferred();let armed=false;
+  const io={...fs,mkdir:async(...args:any[])=>{if(armed&&String(args[0]).endsWith(UPDATE_CACHE_NAME)){armed=false;entered.resolve();await gate.promise;}return (fs.mkdir as any)(...args);}};
+  const f=await fixture({fileSystem:io});
+  try{await f.service.check();armed=true;const task=f.service.apply();await entered.promise;f.service.cancel();gate.resolve();assert.equal((await task).status,'cancelled');assert.equal(f.native.downloads,0);assert.equal(f.native.installCalls.length,0);}finally{gate.resolve();await f.close();}
+});
+
+test('tampering while editor state is being saved is detected before any installer launch',async()=>{
+  let target='';const f=await fixture({beforeInstall:async()=>{await fs.writeFile(target,'tampered while saving drafts');}});
+  try{target=path.join(f.cache,'pending',fileName);await f.service.check();const result=await f.service.apply();assert.equal(result.status,'error');assert.equal(result.errorCode,'verification');assert.equal(f.native.installCalls.length,0);assert.deepEqual(await fs.readdir(path.join(f.cache,'pending')),[]);}finally{await f.close();}
+});
+
 test('stable semantic versions compare numerically and reject prerelease or malformed tags',()=>{
   assert.equal(compareUpdateVersions('0.10.0','0.2.0'),1);
   assert.equal(compareUpdateVersions('v0.2.0','0.2.0'),0);

@@ -198,10 +198,17 @@ export const extractThreadScript = String.raw`(() => {
       return memberId>0?memberId:undefined;
     } catch {return undefined;}
   };
+  const hidden = node => {
+    for(let current=node;current&&current!==main.parentElement;current=current.parentElement){
+      const style=getComputedStyle(current);
+      if(current.hidden||current.getAttribute('aria-hidden')==='true'||style.display==='none'||style.visibility==='hidden'||style.visibility==='collapse')return true;
+    }
+    return false;
+  };
   // The official comments list starts with hot/pinned copies, including floors
   // from other pages. Keep the root first and retain those off-page comments.
   const items = [...main.querySelectorAll('.nsk-post-wrapper .content-item[id="0"]'), ...main.querySelectorAll('.comments > .content-item[id]')]
-    .filter(item => /^\d+$/.test(item.id) && integer(item.id)!==undefined && !item.hidden && !item.closest('.post-content'));
+    .filter(item => /^\d+$/.test(item.id) && integer(item.id)!==undefined && !hidden(item) && !item.closest('.post-content'));
   if (!items.length) return null;
   const byFloor = new Map();
   for(const item of items){const floor=String(Number(item.id));const copies=byFloor.get(floor)||[];copies.push(item);byFloor.set(floor,copies);}
@@ -234,8 +241,10 @@ export const extractThreadScript = String.raw`(() => {
     const photo = meta?.querySelector('.avatar-wrapper img');
     const time = meta?.querySelector('time');
     const content = item.querySelector(':scope > .post-content');
-    const clone = content?.cloneNode(true);
+    const clone = content&&!hidden(content)?content.cloneNode(true):undefined;
     if (clone) {
+      const originalNodes=[...content.querySelectorAll('*')],clonedNodes=[...clone.querySelectorAll('*')];
+      const hiddenCopies=originalNodes.flatMap((node,index)=>!node.closest('.nsk-magic-tab-body,.terminal-container,.xterm')&&hidden(node)?[clonedNodes[index]]:[]);
       // Pair the original and cloned DOM before removing anything: xterm's canvas
       // viewport omits offscreen text, whereas captured PRE retains the full report.
       const roots=[...content.querySelectorAll('.terminal-container,.xterm')].filter(node=>!node.parentElement?.closest('.terminal-container,.xterm'));
@@ -255,20 +264,22 @@ export const extractThreadScript = String.raw`(() => {
         copied[index]?.replaceWith(pre);
       });
       clone.querySelectorAll('pre').forEach(pre=>{const code=pre.querySelector('code')||pre,raw=code.textContent||'',hint=/ansi|terminal|xterm/i.test(pre.className+' '+code.className)||/基本信息|IP质量/i.test(pre.closest('.nsk-magic-tab-body')?.previousElementSibling?.textContent||'');if(/[\x1b]\[[0-9;:]*m|\u009b[0-9;:]*m/.test(raw)||((hint||/硬件质量|IP质量|NodeQuality|融合怪|ecs\.sh/i.test(raw))&&(raw.match(/\[[0-9;:]{1,24}m/g)||[]).length>=3))pre.className='seekdesk-terminal';});
+      hiddenCopies.forEach(node=>node?.remove());
       clone.querySelectorAll('script,style,iframe,object,embed,form,template').forEach(node => node.remove());
       clone.querySelectorAll('[hidden],[aria-hidden="true"]').forEach(node=>{if(node.matches('.nsk-magic-tab-body')||node.closest('.nsk-magic-tab-body')){node.removeAttribute('hidden');node.removeAttribute('aria-hidden');}else node.remove();});
       clone.querySelectorAll('img').forEach(img => { const src = safe(img.getAttribute('data-src') || img.getAttribute('src')); if (src) img.setAttribute('src', src); else img.remove(); });
       clone.querySelectorAll('a[href]').forEach(a => { const href = safe(a.getAttribute('href'),true); if (href) a.setAttribute('href',href); else a.removeAttribute('href'); });
     }
     const warning = item.querySelector(':scope > .topic-warning');
-    const signature=item.querySelector(':scope > .signature, :scope > .user-signature')?.cloneNode(true);
-    if(signature)signature.querySelectorAll('a[href]').forEach(a=>{const href=safe(a.getAttribute('href'),true);if(href)a.setAttribute('href',href);else a.removeAttribute('href');});
+    const signatureSource=item.querySelector(':scope > .signature, :scope > .user-signature');
+    const signature=signatureSource&&!hidden(signatureSource)?signatureSource.cloneNode(true):undefined;
+    if(signature){const originals=[...signatureSource.querySelectorAll('*')],copies=[...signature.querySelectorAll('*')];originals.forEach((node,index)=>{if(hidden(node))copies[index]?.remove();});signature.querySelectorAll('a[href]').forEach(a=>{const href=safe(a.getAttribute('href'),true);if(href)a.setAttribute('href',href);else a.removeAttribute('href');});}
     const menu=item.querySelector(':scope > .comment-menu');
     const reaction=title=>menu?.querySelector('[title="'+title+'"]');
     const count=(title,fallback)=>integer(/^\d+$/.test(plain(reaction(title)))?plain(reaction(title)):fallback);
     return [{id:floorId, author:plain(author) || (typeof poster?.name==='string'?poster.name.trim():'') || 'NodeSeek 用户',authorId,level,role,isHot,isPinned,sourcePage,actionUrl,
       isAuthor:floorId==='0'||Boolean(meta?.querySelector('.is-poster'))||enabled(poster?.isOp),isOwn:poster?.isMe===true,
-      signature:plain(item.querySelector(':scope > .signature, :scope > .user-signature')) || undefined,
+      signature:signature?plain(signature)||undefined:undefined,
       signatureHtml:signature?.innerHTML || undefined,
       likes:count('点赞',row?.upvoteCount),chicken:count('加鸡腿',row?.likeCount),dislikes:count('反对',row?.dislikeCount),
       liked:reaction('点赞')?.classList.contains('clicked') || [true,1,'1'].includes(row?.upvoted),
@@ -294,8 +305,9 @@ export const extractThreadScript = String.raw`(() => {
   if(totalPages!==undefined&&totalPages<page)totalPages=undefined;
   const pages=[...knownPages].sort((a,b)=>a[0]-b[0]).map(([number,url])=>({number,url}));
   const rootAuthorId=comments.find(comment=>comment.id==='0'||comment.isAuthor)?.authorId;
+  const category=items.find(item=>item.id==='0')?.querySelector('.content-category a')?.getAttribute('href')?.split('/').filter(Boolean).pop();
   const replyRestriction=[...(title.closest('h1')?.querySelectorAll('span')||[])].map(plain).find(value=>/^(只读|已锁定|禁止回复)$/.test(value));
-  return {id:route[1], url:location.origin + location.pathname, title:plain(title), comments,rootAuthorId,replyRestriction,
+  return {id:route[1], url:location.origin + location.pathname, title:plain(title), comments,rootAuthorId,replyRestriction,category,
     source:'web', page, pages,totalPages,nextPage:knownPages.has(page+1) ? page + 1 : null};
 })()`;
 

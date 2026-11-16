@@ -1,5 +1,5 @@
 export type CloseBehavior='ask'|'tray'|'quit';
-export interface DesktopPreferences {closeBehavior:CloseBehavior}
+export interface DesktopPreferences {closeBehavior:CloseBehavior;automaticUpdates?:boolean}
 export type UpdateStatus='idle'|'checking'|'available'|'up-to-date'|'downloading'|'downloaded'|'installing'|'cancelled'|'error'|'unsupported';
 export interface UpdateState {
   status:UpdateStatus;
@@ -11,17 +11,22 @@ export interface UpdateState {
   installable:boolean;
   manualOnly?:boolean;
   canDownload?:boolean;
+  applying?:boolean;
+  automaticChecks?:boolean;
   message?:string;
   checkedAt?:string;
-  errorCode?:'network'|'manifest-missing'|'verification'|'download'|'install'|'unsupported'|'unknown';
+  errorCode?:'network'|'manifest-missing'|'verification'|'download'|'prepare'|'install'|'unsupported'|'unknown';
 }
 export interface DesktopAPI {
   getDesktopPreferences():Promise<DesktopPreferences>;
   setCloseBehavior(behavior:CloseBehavior):Promise<DesktopPreferences>;
+  setAutomaticUpdates(enabled:boolean):Promise<DesktopPreferences>;
   getUpdateState():Promise<UpdateState>;
   checkUpdates():Promise<UpdateState>;
   downloadUpdate():Promise<UpdateState>;
   cancelUpdate():Promise<UpdateState>;
   installUpdate():Promise<UpdateState>;
+  applyUpdate():Promise<UpdateState>;
+  onBeforeUpdateInstall(callback:()=>Promise<void>):()=>void;
   onUpdateChange(callback:(state:UpdateState)=>void):()=>void;
 }

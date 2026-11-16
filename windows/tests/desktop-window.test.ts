@@ -122,6 +122,44 @@ test('corrupt or untrusted saved state recovers and close preference validation 
   } finally {await invalid.cleanup();}
 });
 
+test('automatic update checks default on for old state and persist independently of the close choice',async()=>{
+  const f=await fixture({}, {closeBehavior:'ask',maximized:false});
+  let restarted:Awaited<ReturnType<typeof fixture>>|undefined;
+  try{
+    assert.equal(f.controller.getPreferences().automaticUpdates!==false,true);
+    await f.controller.setAutomaticUpdates(false);await f.controller.setCloseBehavior('tray');
+    assert.deepEqual(f.controller.getPreferences(),{closeBehavior:'tray',automaticUpdates:false});
+    const saved=await f.read();assert.equal(saved.automaticUpdates,false);
+    restarted=await fixture({},saved);assert.deepEqual(restarted.controller.getPreferences(),{closeBehavior:'tray',automaticUpdates:false});
+    await restarted.controller.setAutomaticUpdates(true);
+    assert.equal(restarted.controller.getPreferences().automaticUpdates!==false,true);
+    assert.equal((await restarted.read()).automaticUpdates,true);
+    await assert.rejects(restarted.controller.setAutomaticUpdates('false'),/自动更新检查设置无效/);
+    assert.equal(restarted.controller.getPreferences().automaticUpdates!==false,true);
+  }finally{await restarted?.cleanup();await f.cleanup();}
+});
+
+test('a failed automatic-check preference write rolls back the reported value',async()=>{
+  const f=await fixture();
+  try{f.controller.flush=async()=>{throw new Error('synthetic disk failure');};await assert.rejects(f.controller.setAutomaticUpdates(false),/synthetic/);assert.equal(f.controller.getPreferences().automaticUpdates!==false,true);}finally{await f.cleanup();}
+});
+
+test('queued close and automatic-check writes retain both final preferences',async()=>{
+  const f=await fixture();
+  try{await Promise.all([f.controller.setAutomaticUpdates(false),f.controller.setCloseBehavior('tray')]);const saved=await f.read();assert.equal(saved.automaticUpdates,false);assert.equal(saved.closeBehavior,'tray');}finally{await f.cleanup();}
+});
+
+test('rolling back a failed automatic preference also corrects a later queued close snapshot',async()=>{
+  const f=await fixture();const flush=f.controller.flush.bind(f.controller);let calls=0;
+  try{
+    f.controller.flush=async()=>{if(++calls===1)throw new Error('synthetic first write failure');await flush();};
+    const automatic=f.controller.setAutomaticUpdates(false),close=f.controller.setCloseBehavior('tray');
+    await assert.rejects(automatic,/synthetic/);await close;
+    assert.equal(f.controller.getPreferences().automaticUpdates!==false,true);
+    const saved=await f.read();assert.equal(saved.automaticUpdates,true);assert.equal(saved.closeBehavior,'tray');
+  }finally{await f.cleanup();}
+});
+
 test('normal bounds and maximized state survive resize debounce and a restart',async() => {
   const f=await fixture();
   let restored: DesktopWindowController | undefined;

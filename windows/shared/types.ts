@@ -1,6 +1,7 @@
 import type {ParityAPI} from './parity';
 import type {DesktopAPI} from './desktop';
 import type {UserProfilesAPI} from './profiles';
+import type {ReadingLibraryAPI} from './library';
 export interface Post {
   id: string;
   url: string;
@@ -65,6 +66,7 @@ export interface ThreadResult {
   page: number;
   nextPage: number | null;
   rootAuthorId?: number;
+  category?: string;
   pages?: {number:number;url:string}[];
   totalPages?: number;
   replyRestriction?: string;
@@ -99,12 +101,14 @@ export interface Settings {
   restoreTabs: boolean;
   defaultSource: 'auto' | 'rss';
 }
+export interface SavedReadingAnchor {floor:string;page:number;offset:number}
 export interface SavedWorkspace {
   tabs: Post[];
   activeId: string | null;
   overviewOpen?: boolean;
   listHidden?: boolean;
   scrollPositions?: Record<string,number>;
+  readingAnchors?: Record<string,SavedReadingAnchor>;
 }
 export type ForumActionRequest =
   | {kind:'reply';url:string;content:string;quote?:{floor:string;author:string;text:string}}
@@ -127,7 +131,7 @@ export interface Bootstrap {
   official: OfficialViewState;
   blockedUsers: number[];
 }
-export interface SeekDeskAPI extends ParityAPI,DesktopAPI,UserProfilesAPI {
+export interface SeekDeskAPI extends ParityAPI,DesktopAPI,UserProfilesAPI,ReadingLibraryAPI {
   bootstrap(): Promise<Bootstrap>;
   listPosts(request: ListingRequest): Promise<ListingResult>;
   readThread(post: Post, page?: number): Promise<ThreadResult>;

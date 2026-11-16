@@ -10,13 +10,19 @@ export function useThreadProfiles(result:ThreadResult|undefined,enabled:boolean,
   const retryMembers=useRef<Set<number>>(new Set());
   const relationships=useRef(new Map<number,boolean>());
   const lastScope=useRef(scope);
-  useEffect(()=>{relationships.current.clear();retryMembers.current.clear();setSnapshots({scope,values:{}});},[scope]);
+  const latestSnapshots=useRef(snapshots);latestSnapshots.current=snapshots;
+  const previousResult=useRef<ThreadResult|undefined>(undefined);
+  useEffect(()=>{relationships.current.clear();retryMembers.current.clear();previousResult.current=undefined;setSnapshots({scope,values:{}});},[scope]);
   useEffect(()=>{
     if(lastScope.current!==scope){lastScope.current=scope;relationships.current.clear();}
     if(!enabled||result?.source!=='web'||!window.seekdesk.readUserProfiles){setLoading(new Set());return;}
     const ids=[...new Set(result.comments.map(comment=>comment.authorId).filter((id):id is number=>Number.isSafeInteger(id)&&Number(id)>0))];
     const forced=new Set(retryMembers.current);retryMembers.current.clear();
-    const queue=ids;
+    const previous=previousResult.current,known=latestSnapshots.current.scope===scope?latestSnapshots.current.values:{};
+    const floors=new Set(result.comments.map(comment=>comment.id));
+    const continuing=previous===result||Boolean(previous&&previous.id===result.id&&result.page>previous.page&&previous.comments.every(comment=>floors.has(comment.id)));
+    previousResult.current=result;
+    const queue=ids.filter(id=>forced.has(id)||!continuing||!known[id]);
     let current=true,cursor=0;
     setLoading(new Set(queue));
     const worker=async()=>{

@@ -9,6 +9,7 @@
 .user-profile-metrics span {color:var(--muted);font-size:max(12px,.77rem);}
 .user-profile-metrics strong {font-size:1.1rem;font-variant-numeric:tabular-nums;}
 .user-profile-card .user-profile-joined {font-size:max(12px,.84rem);color:var(--muted);}
-.user-profile-bio {font-size:max(12px,.88rem);line-height:1.75;white-space:pre-wrap;max-height:11em;overflow:auto;}
+.user-profile-bio {font-size:max(12px,.88rem);line-height:1.75;max-height:11em;overflow:auto;}
+.user-profile-bio .profile-markdown {font-size:inherit;}
 .user-profile-error {font-size:max(12px,.82rem);line-height:1.7;color:var(--muted);}
 .user-profile-card>footer {display:flex;justify-content:space-between;gap:12px;margin-top:18px;}
