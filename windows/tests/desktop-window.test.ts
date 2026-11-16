@@ -75,9 +75,9 @@ async function fixture(overrides: Partial<DesktopWindowOptions>={},saved?: unkno
   const cleanup=async() => {controller.dispose();await fs.rm(directory,{recursive:true,force:true});};
   return {directory,controller,app,window,tray,errors,dialogs,choice,read,cleanup};
 }
-async function until(check: () => boolean) {
+async function until(check: () => boolean|Promise<boolean>) {
   const deadline=Date.now()+2000;
-  while (!check()) {
+  while (!await check()) {
     if (Date.now()>deadline) throw new Error('窗口状态未按预期更新');
     await new Promise(resolve => setTimeout(resolve,5));
   }
@@ -171,7 +171,10 @@ test('normal bounds and maximized state survive resize debounce and a restart',a
     f.window.emit('resize');
     f.window.maximize();
     await until(() => !f.errors.length && f.window.maximizeCount===1);
-    await new Promise(resolve => setTimeout(resolve,35));
+    await until(async() => {
+      try {return (await f.read()).maximized===true;}
+      catch(error) {if((error as NodeJS.ErrnoException).code==='ENOENT')return false;throw error;}
+    });
     const saved=await f.read();
     assert.deepEqual(saved.bounds,{x:210,y:110,width:1280,height:820});
     assert.equal(saved.maximized,true);
