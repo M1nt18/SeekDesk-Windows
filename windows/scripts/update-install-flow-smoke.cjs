@@ -151,6 +151,7 @@ async function readDraft(){const value=JSON.parse(await fs.readFile(path.join(pr
   check('A renderer preparation failure rejects the real IPC acknowledgement and never runs the cached installer');
 
   await instance.evaluate(()=>{globalThis.__updateFlow.holdReplyLoad=true;});
+  if(!await page.getByTestId('post-row').nth(1).isVisible())await page.locator('.list-toggle').click();
   await page.getByTestId('post-row').nth(1).click();await page.getByTestId('reader-content').first().waitFor();
   await page.getByRole('button',{name:'写回复',exact:true}).click();
   await until(async()=>await instance.evaluate(()=>globalThis.__updateFlow.pendingReplyLoads.length>0),'Delayed draft load did not begin');
