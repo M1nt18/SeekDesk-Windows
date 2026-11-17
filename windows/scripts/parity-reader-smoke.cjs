@@ -24,6 +24,9 @@ app.whenReady().then(()=>{for(const partition of [undefined,'persist:nodeseek','
 globalThis.fetch=async(input,options={})=>{const url=String(input);state.fetches.push({url,method:options.method||'GET'});if(url==='https://api.nodeimage.com/api/upload')return json({success:true,links:{direct:'https://www.nodeseek.com/media-upload.png'}});if(url.startsWith('https://www.nodeseek.com/media-'))return new Response(large,{headers:{'content-type':'image/png'}});throw new Error('Unexpected main fetch '+url);};require(${JSON.stringify(main)});`);
   const env={...process.env,SEEKDESK_TEST:'1',SEEKDESK_USER_DATA:profile};delete env.ELECTRON_RUN_AS_NODE;delete env.SEEKDESK_DEV_URL;
   app=await _electron.launch({executablePath:require('electron'),args:[entry],env,timeout:45000});page=await app.firstWindow();page.on('pageerror',error=>report.errors.push(error.message));await page.waitForSelector('.workspace');
+  // This regression deliberately exercises the wide layout, including on small CI desktops.
+  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().find(win=>win.webContents.getURL().startsWith('file:')).setSize(1440,960));
+  await page.waitForFunction(()=>innerWidth>=1050);
   await page.evaluate(()=>window.seekdesk.openOfficial('https://www.nodeseek.com/'));await waitForAsync(page,async()=>(await window.seekdesk.checkAccount()).id===42);await page.evaluate(()=>window.seekdesk.closeOfficial());
   await page.getByTestId('post-row').first().waitFor({timeout:30000});await page.getByTestId('post-row').first().click();await page.getByTestId('reader-content').first().waitFor({timeout:30000});
   const rich=page.getByTestId('reader-content').first();await rich.locator('.reader-image-frame img').first().waitFor();
