@@ -9,7 +9,8 @@ export function Avatar({name='',src,id,large=false}:{name?:string;src?:string;id
   const [resolved,setResolved]=useState(src||avatarURL(id)),[failed,setFailed]=useState(false);const attempt=useRef(false);
   useEffect(()=>{setResolved(src||avatarURL(id));setFailed(false);attempt.current=false;},[src,id]);
   useEffect(()=>{const member=id||Number(src?.match(/\/avatar\/(\d+)/)?.[1]);if(!failed||attempt.current||!member)return;attempt.current=true;let current=true;void window.seekdesk.loadAvatar(member).then(value=>{if(current&&value){setResolved(value);setFailed(false);}}).catch(()=>{});return()=>{current=false;};},[failed,id,src]);
-  return <span className={`avatar${large?' large':''}`}>{resolved&&!failed?<img src={resolved} alt={`${name||'用户'}的头像`} loading="lazy" referrerPolicy="no-referrer" onError={()=>setFailed(true)}/>:name.slice(0,1).toUpperCase()||<UserRound size={18}/>}</span>;
+  const shade=[...name].reduce((value,char)=>value+char.charCodeAt(0),0)%4+1;
+  return <span className={`avatar avatar-${shade}${large?' large':''}`}>{resolved&&!failed?<img src={resolved} alt={`${name||'用户'}的头像`} loading="lazy" referrerPolicy="no-referrer" onError={()=>setFailed(true)}/>:name.slice(0,1).toUpperCase()||<UserRound size={18}/>}</span>;
 }
 export function Loading({label='正在读取…'}:{label?:string}) {return <div className="panel-state" role="status"><LoaderCircle className="spin" size={24}/><span>{label}</span></div>;}
 export function ErrorState({error,onRetry}:{error:string;onRetry?:()=>void}) {return <div className="panel-state error" role="alert"><CircleAlert size={26}/><p>{error}</p>{onRetry&&<button className="secondary-button" onClick={onRetry}>重新读取</button>}</div>;}
@@ -20,4 +21,11 @@ export function Modal({title,children,onClose,wide=false}:{title:string;children
   return <div className="dialog-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}><section ref={panel} className={`parity-dialog${wide?' wide':''}`} role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><IconButton label="关闭" onClick={onClose}><X size={19}/></IconButton></header>{children}</section></div>;
 }
 export const errorMessage=(error:unknown)=>error instanceof Error?error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/,''):'操作未完成，请重试。';
-export function dateLabel(value:string,full=false) {const date=new Date(value);if(!value||Number.isNaN(date.getTime()))return value||'';if(full)return date.toLocaleString('zh-CN');const seconds=Math.max(0,(Date.now()-date.getTime())/1000);return seconds<60?'刚刚':seconds<3600?`${Math.floor(seconds/60)} 分钟前`:seconds<86400?`${Math.floor(seconds/3600)} 小时前`:date.toLocaleDateString('zh-CN',{month:'numeric',day:'numeric'});}
+export function dateLabel(value:string,full=false) {
+  const date=new Date(value);
+  if(!value)return '';
+  if(Number.isNaN(date.getTime()))return value.slice(0,160);
+  if(full)return date.toLocaleString('zh-CN',{year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  const seconds=Math.max(0,(Date.now()-date.getTime())/1000);
+  return seconds<60?'刚刚':seconds<3600?`${Math.floor(seconds/60)} 分钟前`:seconds<86400?`${Math.floor(seconds/3600)} 小时前`:date.toLocaleDateString('zh-CN',{month:'numeric',day:'numeric'});
+}

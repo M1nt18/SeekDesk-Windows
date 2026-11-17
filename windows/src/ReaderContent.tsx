@@ -1,4 +1,4 @@
-import {createElement,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
+import {createElement,memo,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import type {CSSProperties,ReactNode} from 'react';
 import type {ReaderImage} from '../shared/parity';
 import {createPortal} from 'react-dom';
@@ -9,6 +9,7 @@ export {parseAnsi} from './ansi';
 import './reader-content.css';
 
 export interface ReaderContentProps {html:string;onNavigate?:(url:string)=>void;nqScale?:number;tqScale?:number;onReportScale?:(kind:'nq'|'tq',value:number)=>void}
+const sameReaderContent=(previous:ReaderContentProps,next:ReaderContentProps)=>previous.html===next.html&&(previous.nqScale??100)===(next.nqScale??100)&&(previous.tqScale??100)===(next.tqScale??100);
 function CopyButton({value,label='复制'}:{value:string;label?:string}){const [copied,setCopied]=useState(false),[error,setError]=useState('');return <button type="button" title={error||label} onClick={()=>{window.seekdesk.copyText(value).then(()=>{setCopied(true);setError('');setTimeout(()=>setCopied(false),1800);}).catch(error=>setError(String(error.message||error)));}}>{copied?<Check size={14}/>:<Copy size={14}/>}<span>{error|| (copied?'已复制':label)}</span></button>;}
 function ScaleControls({kind,value,onChange}:{kind:'nq'|'tq';value:number;onChange:(value:number)=>void}){const min=kind==='nq'?25:50,values=[...new Set([25,50,75,100,125,150,175,200,value])].filter(n=>n>=min&&n<=200).sort((a,b)=>a-b);return <div className="report-scale-controls"><button type="button" aria-label="缩小报告比例" disabled={value<=min} onClick={()=>onChange(Math.max(min,value-25))}><Minus size={13}/></button><select aria-label={kind==='nq'?'NQ 报告宽度':'TQ 报告大小'} value={value} onChange={event=>onChange(Number(event.target.value))}>{values.map(n=><option key={n} value={n}>{n}%</option>)}</select><button type="button" aria-label="放大报告比例" disabled={value>=200} onClick={()=>onChange(Math.min(200,value+25))}><Plus size={13}/></button><button type="button" aria-label="恢复报告默认大小" title="恢复默认大小，100%" onClick={()=>onChange(100)}><RotateCcw size={13}/></button></div>;}
 function ScaledContent({kind,percentage,children}:{kind:'nq'|'tq';percentage:number;children:ReactNode}){
@@ -53,12 +54,13 @@ function Tabs({node,render,scale,onScale}:{node:HTMLElement;render:(nodes:NodeLi
   if(!tabs.length)return render([...node.childNodes],'fallback');
   return <section className="reader-report-tabs"><div className="report-tab-head" role="tablist">{tabs.map((tab,index)=><button type="button" role="tab" key={index} aria-selected={active===index} onClick={()=>setActive(index)}>{tab.label}</button>)}{kind&&<ScaleControls kind={kind} value={scale(kind)} onChange={value=>onScale(kind,value)}/>}<CopyButton value={tabs.map(tab=>tab.label+'\n'+parseAnsi(tab.pane.textContent||'').map(span=>span.text).join('')).join('\n\n')} label="复制报告"/></div><div className="report-tab-pane" role="tabpanel" aria-label={tabs[Math.min(active,tabs.length-1)].label}>{render(tabs[Math.min(active,tabs.length-1)].pane.childNodes,'tab-'+active,kind)}</div></section>;
 }
-export function ReaderContent({html,onNavigate,nqScale=100,tqScale=100,onReportScale}:ReaderContentProps){
+export const ReaderContent = memo(function ReaderContent({html,onNavigate,nqScale=100,tqScale=100,onReportScale}:ReaderContentProps){
   const [localScale,setLocalScale]=useState({nq:nqScale,tq:tqScale}),[gallery,setGallery]=useState<number|null>(null);
+  const navigate=useRef(onNavigate),reportScale=useRef(onReportScale);navigate.current=onNavigate;reportScale.current=onReportScale;
   useEffect(()=>setLocalScale({nq:nqScale,tq:tqScale}),[nqScale,tqScale]);
   const document=useMemo(()=>new DOMParser().parseFromString(DOMPurify.sanitize(html,{USE_PROFILES:{html:true},ADD_ATTR:['target','rel','loading','referrerpolicy'],FORBID_TAGS:['style','form','input','iframe','object','embed'],FORBID_ATTR:['srcset']}),'text/html'),[html]);
   const images=useMemo(()=>[...document.querySelectorAll('img[src]')].filter(row=>!row.classList.contains('sticker')).map(row=>({url:row.getAttribute('src')!,alt:row.getAttribute('alt')||'帖子图片'})),[document]);
-  const scale=(kind:'nq'|'tq')=>localScale[kind],changeScale=(kind:'nq'|'tq',value:number)=>{setLocalScale(old=>({...old,[kind]:value}));onReportScale?.(kind,value);};
+  const scale=(kind:'nq'|'tq')=>localScale[kind],changeScale=(kind:'nq'|'tq',value:number)=>{setLocalScale(old=>({...old,[kind]:value}));reportScale.current?.(kind,value);};
   const render=(nodes:NodeListOf<ChildNode>|ChildNode[],prefix:string,report?:'nq'|'tq'):ReactNode=>[...nodes].map((node,index)=>{
     const key=prefix+'-'+index;if(node.nodeType===Node.TEXT_NODE)return node.textContent;if(node.nodeType!==Node.ELEMENT_NODE)return null;const el=node as HTMLElement,tag=el.tagName.toLowerCase();
     if(el.matches('.nsk-magic-tabs'))return <Tabs key={key} node={el} render={render} scale={scale} onScale={changeScale}/>;
@@ -69,7 +71,7 @@ export function ReaderContent({html,onNavigate,nqScale=100,tqScale=100,onReportS
       return report&&!sticker?<ScaledContent key={key} kind={report} percentage={scale(report)}>{image}</ScaledContent>:image;
     }
     const attributes:Record<string,unknown>={key};
-    if(tag==='a'){const href=el.getAttribute('href');if(href&&!/^(?:https?:\/\/|mailto:)/i.test(href))return render(el.childNodes,key,report);attributes.href=href;attributes.rel='noopener noreferrer';attributes.onClick=(event:React.MouseEvent)=>{event.preventDefault();if(href)onNavigate?onNavigate(href):window.seekdesk.openExternal(href);};}
+    if(tag==='a'){const href=el.getAttribute('href');if(href&&!/^(?:https?:\/\/|mailto:)/i.test(href))return render(el.childNodes,key,report);attributes.href=href;attributes.rel='noopener noreferrer';attributes.onClick=(event:React.MouseEvent)=>{event.preventDefault();if(href)navigate.current?navigate.current(href):window.seekdesk.openExternal(href);};}
     if(tag==='td'||tag==='th'){const col=Number(el.getAttribute('colspan')),row=Number(el.getAttribute('rowspan'));if(col>1&&col<100)attributes.colSpan=col;if(row>1&&row<100)attributes.rowSpan=row;}
     if(tag==='ol'&&el.hasAttribute('start'))attributes.start=Number(el.getAttribute('start'))||1;
     if(tag==='details')attributes.open=el.hasAttribute('open');
@@ -79,5 +81,5 @@ export function ReaderContent({html,onNavigate,nqScale=100,tqScale=100,onReportS
     return createElement(tag,attributes,render(el.childNodes,key,report));
   });
   return <div className="reader-rich-content">{render(document.body.childNodes,'content')}{gallery!==null&&gallery>=0&&<ImageGallery images={images} index={gallery} onIndex={setGallery} onClose={()=>setGallery(null)}/>}</div>;
-}
+},sameReaderContent);
 export default ReaderContent;
