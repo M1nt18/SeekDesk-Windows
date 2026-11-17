@@ -32,7 +32,7 @@ export function validateDraft(input:unknown):DraftValue|null{
 export class ParityStore{
   appearance={...appearanceDefaults};extensions:ExtensionsState=defaultExtensions();history:SearchHistory[]=[];
   private drafts:Record<string,Record<string,DraftValue>>=Object.create(null);private contacts:Record<string,ConversationContact[]>=Object.create(null);private queue:Promise<unknown>=Promise.resolve();
-  constructor(private directory:string){}
+  constructor(private directory:string,private readonly io:Pick<typeof fs,'mkdir'|'writeFile'|'rename'>=fs){}
   async load(){try{const row=JSON.parse(await fs.readFile(path.join(this.directory,'workspace-features.json'),'utf8'));try{this.appearance=validateAppearance(row.appearance);}catch{}try{this.extensions=sanitizeExtensions(row.extensions);}catch{}try{this.history=validateHistory(row.history);}catch{}if(row.drafts&&typeof row.drafts==='object')for(const [owner,drafts] of Object.entries(row.drafts)){if(!/^[1-9]\d{0,9}$/.test(owner)||!drafts||typeof drafts!=='object')continue;const valid:Record<string,DraftValue>=Object.create(null);for(const [key,value] of Object.entries(drafts).slice(-100)){try{this.key(key);const draft=validateDraft(value);if(draft)valid[key]=draft;}catch{}}this.drafts[owner]=valid;}if(row.contacts&&typeof row.contacts==='object')for(const [owner,contacts] of Object.entries(row.contacts)){if(!/^[1-9]\d{0,9}$/.test(owner)||!Array.isArray(contacts))continue;const seen=new Set<number>();this.contacts[owner]=contacts.flatMap(contact=>{try{const valid=this.contact(contact);if(valid.id===Number(owner)||seen.has(valid.id))return [];seen.add(valid.id);return [valid];}catch{return [];}}).slice(0,500);}}catch{}}
   private key(key:unknown):asserts key is string{if(typeof key!=='string'||!key||key.length>240||/[\x00-\x1f]/.test(key))throw new Error('草稿位置无效');}
   loadDraft(owner:number|undefined,key:string){this.key(key);const rows=owner?this.drafts[String(owner)]:undefined;return rows&&Object.hasOwn(rows,key)?structuredClone(rows[key]):null;}
@@ -40,5 +40,20 @@ export class ParityStore{
   private contact(input:unknown):ConversationContact{if(!input||typeof input!=='object')throw new Error('私信联系人无效');const row=input as Record<string,unknown>;if(!Number.isSafeInteger(row.id)||Number(row.id)<1||Number(row.id)>9999999999||typeof row.name!=='string'||row.name.length>200||/[\x00-\x1f]/.test(row.name))throw new Error('私信联系人无效');return {id:Number(row.id),name:row.name.trim()};}
   readConversationContacts(owner:number|undefined):ConversationContact[]{return owner?structuredClone(this.contacts[String(owner)]||[]):[];}
   async rememberConversationContact(owner:number|undefined,input:unknown):Promise<ConversationContact[]>{if(!Number.isSafeInteger(owner)||!owner||owner<1||owner>9999999999)throw new Error('请确认登录账号后保存联系人');const contact=this.contact(input);if(contact.id===owner)return this.readConversationContacts(owner);const key=String(owner),previous=this.contacts[key]||[],known=previous.find(row=>row.id===contact.id);if(!contact.name&&known)contact.name=known.name;const next=[contact,...previous.filter(row=>row.id!==contact.id)].slice(0,500);if(JSON.stringify(next)!==JSON.stringify(previous)){this.contacts[key]=next;await this.save();}return this.readConversationContacts(owner);}
-  save(){const snapshot=JSON.stringify({appearance:this.appearance,extensions:this.extensions,history:this.history,drafts:this.drafts,contacts:this.contacts});this.queue=this.queue.catch(()=>{}).then(async()=>{await fs.mkdir(this.directory,{recursive:true});const target=path.join(this.directory,'workspace-features.json');await fs.writeFile(target+'.tmp',snapshot);await fs.rename(target+'.tmp',target);});return this.queue;}
+  save(){this.queue=this.queue.catch(()=>{}).then(()=>this.persist());return this.queue;}
+  commitAppearance(input:unknown){
+    const next=validateAppearance(input);
+    const task=this.queue.catch(()=>{}).then(async()=>{await this.persist({appearance:next});this.appearance=next;return {...next};});
+    this.queue=task;return task;
+  }
+  commitExtensions(input:ExtensionsState){
+    const next=sanitizeExtensions(input);
+    const task=this.queue.catch(()=>{}).then(async()=>{await this.persist({extensions:next});this.extensions=next;return structuredClone(next);});
+    this.queue=task;return task;
+  }
+  private async persist(overrides:{appearance?:ParitySettings;extensions?:ExtensionsState}={}){
+    const snapshot=JSON.stringify({appearance:overrides.appearance??this.appearance,extensions:overrides.extensions??this.extensions,history:this.history,drafts:this.drafts,contacts:this.contacts});
+    await this.io.mkdir(this.directory,{recursive:true});const target=path.join(this.directory,'workspace-features.json');
+    await this.io.writeFile(target+'.tmp',snapshot);await this.io.rename(target+'.tmp',target);
+  }
 }

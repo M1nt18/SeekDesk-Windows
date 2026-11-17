@@ -1,12 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { SeekDeskAPI, AccountState, OfficialViewState } from '../shared/types';
 
-const updatePreparers=new Set<()=>Promise<void>>();
-ipcRenderer.on('app:update-prepare',(_event,requestId:unknown)=>{
+const updatePreparers=new Set<(reason?:'quit'|'update')=>Promise<void>>();
+ipcRenderer.on('app:update-prepare',(_event,requestId:unknown,reason:unknown='update')=>{
   if(!Number.isSafeInteger(requestId)||Number(requestId)<=0)return;
+  if(reason!=='quit'&&reason!=='update')return;
   void Promise.resolve().then(async()=>{
-    if(!updatePreparers.size)throw new Error('Renderer is not ready');
-    await Promise.all([...updatePreparers].map(prepare=>prepare()));
+    if(!updatePreparers.size){if(reason==='quit')return;throw new Error('Renderer is not ready');}
+    const results=await Promise.allSettled([...updatePreparers].map(prepare=>prepare(reason)));
+    if(results.some(result=>result.status==='rejected'))throw new Error('Local changes could not be saved');
   }).then(()=>ipcRenderer.invoke('app:update-prepared',requestId,true),()=>ipcRenderer.invoke('app:update-prepared',requestId,false)).catch(()=>{});
 });
 
@@ -20,6 +22,7 @@ const api: SeekDeskAPI = {
   installUpdate: () => ipcRenderer.invoke('app:update-install'),
   applyUpdate: () => ipcRenderer.invoke('app:update-apply'),
   onBeforeUpdateInstall: callback => {updatePreparers.add(callback);return()=>{updatePreparers.delete(callback);};},
+  onSaveCancelled: callback => {const handler=(_event:Electron.IpcRendererEvent,reason:unknown)=>{if(reason==='quit'||reason==='update')callback(reason);};ipcRenderer.on('app:save-cancelled',handler);return()=>ipcRenderer.removeListener('app:save-cancelled',handler);},
   readReadingLibrary: owner => ipcRenderer.invoke('library:read',owner),
   mutateReadingLibrary: (request,owner) => ipcRenderer.invoke('library:mutate',request,owner),
   onUpdateChange: callback => {const handler=(_event:Electron.IpcRendererEvent,state:Parameters<typeof callback>[0])=>callback(state);ipcRenderer.on('app:update-change',handler);return()=>ipcRenderer.removeListener('app:update-change',handler);},

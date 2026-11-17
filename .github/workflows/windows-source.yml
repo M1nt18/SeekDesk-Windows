@@ -33,3 +33,5 @@ jobs:
         run: npm test
       - name: Typecheck and compile
         run: npm run build
+      - name: Workspace interaction and failure regressions
+        run: npm run test:audit

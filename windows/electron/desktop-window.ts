@@ -93,6 +93,7 @@ export function fitWindowBounds(saved: Rectangle | undefined, displays: Rectangl
 export class DesktopWindowController {
   private state: WindowState = {maximized:false,closeBehavior:'ask',automaticUpdates:true};
   private automaticPreferenceVersion=0;
+  private closePreferenceVersion=0;
   private window?: WindowPort;
   private tray?: TrayPort;
   private timer?: ReturnType<typeof setTimeout>;
@@ -171,8 +172,10 @@ export class DesktopWindowController {
 
   async setCloseBehavior(value: unknown): Promise<DesktopWindowPreferences> {
     if (!validBehavior(value)) throw new Error('关闭窗口行为无效');
+    const previous=this.state.closeBehavior,version=++this.closePreferenceVersion;
     this.state.closeBehavior = value;
-    await this.flush();
+    try{await this.flush();}
+    catch(error){if(version===this.closePreferenceVersion){this.state.closeBehavior=previous;await this.flush().catch(()=>{});}throw error;}
     return this.getPreferences();
   }
 
@@ -206,7 +209,8 @@ export class DesktopWindowController {
     this.dialogAbort?.abort();
     this.quitPromise = (async () => {
       try {await this.flush();} catch (error) {this.report(error);}
-      try {await this.options.onFinalQuit?.();} catch (error) {this.report(error);}
+      try {await this.options.onFinalQuit?.();}
+      catch (error) {this.quitting=false;this.quitPromise=undefined;this.report(error);this.show();return;}
       this.allowQuit();
       this.options.app.quit();
     })();

@@ -45,23 +45,36 @@ export class Store {
   workspace: SavedWorkspace = {tabs: [], activeId: null};
   blockedUsers: number[] = [];
   private queue: Promise<unknown> = Promise.resolve();
-  constructor(private directory: string) {}
+  constructor(private directory: string,private readonly io:Pick<typeof fs,'mkdir'|'readFile'|'writeFile'|'rename'>=fs) {}
   async load() {
     try {
-      const value = JSON.parse(await fs.readFile(path.join(this.directory, 'preferences.json'), 'utf8'));
+      const value = JSON.parse(await this.io.readFile(path.join(this.directory, 'preferences.json'), 'utf8'));
       this.settings = validateSettings(value.settings);
       try { this.workspace = validateWorkspace(value.workspace); } catch { /* Ignore outdated workspace. */ }
       try { this.blockedUsers = validateBlockedUsers(value.blockedUsers || []); } catch { /* Ignore malformed old preferences. */ }
     } catch { /* First run or corrupt preferences: use safe defaults. */ }
   }
   save() {
-    const snapshot = JSON.stringify({settings:this.settings, workspace:this.settings.restoreTabs ? this.workspace : {tabs:[],activeId:null,overviewOpen:this.workspace.overviewOpen ?? true,listHidden:this.workspace.listHidden===true},blockedUsers:this.blockedUsers}, null, 2);
-    this.queue = this.queue.catch(() => {}).then(async () => {
-      await fs.mkdir(this.directory, {recursive:true});
-      const target = path.join(this.directory, 'preferences.json');
-      await fs.writeFile(target + '.tmp', snapshot, 'utf8');
-      await fs.rename(target + '.tmp', target);
-    });
+    const workspace=structuredClone(this.workspace),blockedUsers=[...this.blockedUsers];
+    // Workspace writes queued behind a settings commit must use its confirmed settings.
+    this.queue = this.queue.catch(() => {}).then(() => this.persist(this.settings,workspace,blockedUsers));
     return this.queue;
+  }
+  commitSettings(value:unknown) {
+    const next=validateSettings(value),workspace=structuredClone(this.workspace),blockedUsers=[...this.blockedUsers];
+    const task=this.queue.catch(()=>{}).then(async()=>{
+      const previous=this.settings;
+      await this.persist(next,workspace,blockedUsers);
+      this.settings=next;
+      return {settings:{...next},previous:{...previous}};
+    });
+    this.queue=task;return task;
+  }
+  private async persist(settings:Settings,workspace:SavedWorkspace,blockedUsers:number[]) {
+    const snapshot=JSON.stringify({settings,workspace:settings.restoreTabs?workspace:{tabs:[],activeId:null,overviewOpen:workspace.overviewOpen??true,listHidden:workspace.listHidden===true},blockedUsers},null,2);
+    await this.io.mkdir(this.directory,{recursive:true});
+    const target=path.join(this.directory,'preferences.json');
+    await this.io.writeFile(target+'.tmp',snapshot,'utf8');
+    await this.io.rename(target+'.tmp',target);
   }
 }

@@ -54,7 +54,7 @@ export interface ExtensionHooks {
   readAttendance?:()=>Promise<AttendanceResult>;
   performAttendance?:(mode:'fixed'|'random')=>Promise<AttendanceResult>;
   getAccount?:()=>AccountState;
-  onChange?:(state:ExtensionsState)=>void;
+  onChange?:(state:ExtensionsState,persisted?:boolean)=>void;
   onMatch?:(hit:KeywordHit)=>void;
   onBossKey?:(enabled:boolean,state:ExtensionsState)=>void;
   now?:()=>number;
@@ -80,24 +80,43 @@ export class ExtensionsService {
   private market?:RateSnapshot; private hourly?:RateSnapshot;
   private marketAttempts:number[]=[]; private hourlyAttempt=-Infinity;
   private ratesPending?:Promise<void>;
+  private updateQueue:Promise<unknown>=Promise.resolve();
   constructor(initial:ExtensionsState=defaultExtensions(),private hooks:ExtensionHooks={}) {
     this.state=sanitizeExtensions(initial); this.restart();
   }
   private now=()=>this.hooks.now?.()??Date.now();
   private schedule(fn:()=>void,ms:number) {const timer=(this.hooks.setTimeout||setTimeout)(fn,Math.min(2147483647,Math.max(1000,ms)));timer.unref?.();return timer;}
   private clear(timer:ReturnType<typeof setTimeout>|undefined) {if(timer)(this.hooks.clearTimeout||clearTimeout)(timer);}
-  private emit() {if(!this.disposed)this.hooks.onChange?.(this.getState());}
+  private emit(persisted=false) {if(!this.disposed)this.hooks.onChange?.(this.getState(),persisted);}
   getState():ExtensionsState {return structuredClone(this.state);}
-  update(input:ExtensionsState):ExtensionsState {
+  private prepareUpdate(input:ExtensionsState,acknowledgedUnread?:number) {
     const previous=this.state, next=sanitizeExtensions(input);
     // Hits and dedupe history are owned by the poller. The UI may acknowledge unread.
     next.hits=previous.hits;next.watchHistory=previous.watchHistory;
-    next.unread=input.unread===0?0:previous.unread;
+    next.unread=input.unread===0?Math.max(0,previous.unread-(acknowledgedUnread??previous.unread)):previous.unread;
     next.lastCheck=previous.lastCheck;next.watchError=previous.watchError;
     next.attendance=previous.attendance;next.attendanceOwner=previous.attendanceOwner;
     const changed=JSON.stringify(keywordGroups(next.watchWords))!==JSON.stringify(keywordGroups(previous.watchWords));
-    if(changed){next.watchHistory=undefined;next.hits=[];next.unread=0;this.etag='';this.modified='';}
-    this.state=next;this.restart();this.emit();return this.getState();
+    if(changed){next.watchHistory=undefined;next.hits=[];next.unread=0;}
+    return {next,changed};
+  }
+  private applyUpdate(input:ExtensionsState,persisted=false,acknowledgedUnread?:number):ExtensionsState {
+    const {next,changed}=this.prepareUpdate(input,acknowledgedUnread);
+    if(changed){this.etag='';this.modified='';}
+    this.state=next;this.restart();this.emit(persisted);return this.getState();
+  }
+  update(input:ExtensionsState):ExtensionsState {return this.applyUpdate(input);}
+  commitUpdate(input:ExtensionsState,persist:(state:ExtensionsState)=>Promise<unknown>):Promise<ExtensionsState> {
+    const requested=structuredClone(input);
+    const task=this.updateQueue.catch(()=>{}).then(async()=>{
+      if(this.disposed)throw new Error('扩展服务已关闭');
+      const acknowledgedUnread=this.state.unread,{next}=this.prepareUpdate(requested);
+      await persist(structuredClone(next));
+      // Poller results arriving during the disk write remain authoritative.
+      if(this.disposed)return structuredClone(next);
+      return this.applyUpdate(requested,true,acknowledgedUnread);
+    });
+    this.updateQueue=task;return task;
   }
   private active(id:ExtensionId) {return this.state.installed.includes(id)&&this.state.enabled.includes(id);}
   private restart() {

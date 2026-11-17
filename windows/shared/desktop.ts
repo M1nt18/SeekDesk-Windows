@@ -27,6 +27,7 @@ export interface DesktopAPI {
   cancelUpdate():Promise<UpdateState>;
   installUpdate():Promise<UpdateState>;
   applyUpdate():Promise<UpdateState>;
-  onBeforeUpdateInstall(callback:()=>Promise<void>):()=>void;
+  onBeforeUpdateInstall(callback:(reason?:'quit'|'update')=>Promise<void>):()=>void;
+  onSaveCancelled?(callback:(reason:'quit'|'update')=>void):()=>void;
   onUpdateChange(callback:(state:UpdateState)=>void):()=>void;
 }

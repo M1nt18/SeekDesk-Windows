@@ -56,6 +56,46 @@ test('queued saves restore the last workspace, and disabling restore removes per
   } finally {await fs.rm(directory,{recursive:true,force:true});}
 });
 
+test('a failed settings commit leaves runtime settings and queued workspace saves unchanged',async()=>{
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-settings-failure-'));
+  let fail=false,entered!:()=>void,rejectWrite!:(error:Error)=>void;
+  const writing=new Promise<void>(resolve=>{entered=resolve;});
+  const failure=new Promise<void>((_resolve,reject)=>{rejectWrite=reject;});
+  const io={...fs,rename:async(...args:Parameters<typeof fs.rename>)=>{if(fail){fail=false;entered();await failure;}return fs.rename(...args);}};
+  try{
+    const store=new Store(directory,io);await store.save();fail=true;
+    const rejected=assert.rejects(store.commitSettings({...defaults,defaultSource:'rss'}),/synthetic disk failure/);
+    await writing;assert.equal(store.settings.defaultSource,'auto','Unconfirmed settings must never become runtime settings');
+    store.workspace=validateWorkspace({tabs:[{url:'https://www.nodeseek.com/post-42-1',title:'Queued workspace'}],activeId:'42'});
+    const workspace=store.save();rejectWrite(new Error('synthetic disk failure'));
+    await rejected;await workspace;
+    assert.equal(store.settings.defaultSource,'auto');
+    const saved=JSON.parse(await fs.readFile(path.join(directory,'preferences.json'),'utf8'));
+    assert.equal(saved.settings.defaultSource,'auto');assert.equal(saved.workspace.activeId,'42');
+  }finally{await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('a queued newer settings commit survives an older failure and later workspace snapshots',async()=>{
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-settings-order-'));
+  let fail=false,entered!:()=>void,rejectWrite!:(error:Error)=>void;
+  const writing=new Promise<void>(resolve=>{entered=resolve;});
+  const failure=new Promise<void>((_resolve,reject)=>{rejectWrite=reject;});
+  const io={...fs,rename:async(...args:Parameters<typeof fs.rename>)=>{if(fail){fail=false;entered();await failure;}return fs.rename(...args);}};
+  try{
+    const store=new Store(directory,io);await store.save();fail=true;
+    const rejected=assert.rejects(store.commitSettings({...defaults,defaultSource:'rss',nodeSeekPro:true}),/synthetic late failure/);
+    await writing;
+    const newer=store.commitSettings({...defaults,theme:'dark',restoreTabs:false});
+    store.workspace=validateWorkspace({tabs:[{url:'https://www.nodeseek.com/post-77-1',title:'Later workspace'}],activeId:'77',listHidden:true});
+    const workspace=store.save();rejectWrite(new Error('synthetic late failure'));
+    await rejected;await newer;await workspace;
+    assert.equal(store.settings.theme,'dark');assert.equal(store.settings.defaultSource,'auto');assert.equal(store.settings.nodeSeekPro,false);
+    const saved=JSON.parse(await fs.readFile(path.join(directory,'preferences.json'),'utf8'));
+    assert.equal(saved.settings.theme,'dark');assert.equal(saved.settings.restoreTabs,false);
+    assert.deepEqual(saved.workspace.tabs,[]);assert.equal(saved.workspace.listHidden,true,'The workspace keeps its own captured layout');
+  }finally{await fs.rm(directory,{recursive:true,force:true});}
+});
+
 test('new global font settings migrate old preferences and preserve overview and blocked users',async()=>{
   const old={theme:'dark',fontSize:24,compact:true,restoreTabs:true,defaultSource:'rss'};
   assert.equal(validateSettings(old).uiFontSize,16);

@@ -1,4 +1,4 @@
-import type { Dispatch, FormEvent, RefObject, SetStateAction } from 'react';
+import {useEffect,type Dispatch,type FormEvent,type RefObject,type SetStateAction} from 'react';
 import { BookOpen, ChevronDown, CircleAlert, Compass, LoaderCircle, RefreshCw, Search, X } from 'lucide-react';
 import type { ListingResult, Post } from '../../shared/types';
 import type { PostRowContextMenu } from './PostRow';
@@ -34,7 +34,20 @@ type PostListPanelProps = {
 };
 
 export function PostListPanel({compact,title,listing,listingLoading,listingError,order,onOrder,searching,onExitSearch,query,onQuery,searchRef,onFilter,onRefresh,onLoadOlder,loadingOlder,autoLoadOlder,posts,activeId,selectedIndex,onSelectedIndex,isBlocked,onOpenPost,onContextMenu,onOpenOfficial}:PostListPanelProps) {
-  return <section className={`post-list-panel${compact?' compact':''}`} aria-label="帖子列表">
+  useEffect(()=>{if(selectedIndex>=posts.length)onSelectedIndex(Math.max(0,posts.length-1));},[posts.length,selectedIndex,onSelectedIndex]);
+  return <section className={`post-list-panel${compact?' compact':''}`} aria-label="帖子列表" onKeyDown={event=>{
+    if(event.defaultPrevented||event.nativeEvent.isComposing||event.nativeEvent.keyCode===229||event.altKey)return;
+    const target=event.target as HTMLElement,row=target.closest<HTMLButtonElement>('[data-testid="post-row"]');
+    if(!row||!event.currentTarget.contains(row))return;
+    const rows=[...event.currentTarget.querySelectorAll<HTMLButtonElement>('[data-testid="post-row"]')],index=rows.indexOf(row);
+    if(index<0)return;
+    if((event.key==='ArrowUp'||event.key==='ArrowDown')&&!event.ctrlKey&&!event.metaKey){
+      event.preventDefault();const next=Math.max(0,Math.min(posts.length-1,index+(event.key==='ArrowDown'?1:-1)));
+      onSelectedIndex(next);rows[next]?.focus({preventScroll:true});rows[next]?.scrollIntoView({block:'nearest',inline:'nearest'});
+    }else if(event.key==='Enter'){
+      event.preventDefault();onSelectedIndex(index);onOpenPost(posts[index],event.ctrlKey||event.metaKey);
+    }
+  }}>
     <div className="list-heading"><h1><Compass size={20}/>{title}</h1><IconButton label="刷新帖子列表" disabled={listingLoading} onClick={onRefresh}><RefreshCw size={18} className={listingLoading?'spin':''}/></IconButton></div>
     <div className="list-toolbar">
       <div className="segmented"><button className={order==='postTime'?'selected':''} onClick={()=>onOrder('postTime')}>最新帖子</button><button className={order==='replyTime'?'selected':''} onClick={()=>onOrder('replyTime')}>最新回复</button></div>

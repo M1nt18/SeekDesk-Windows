@@ -1,4 +1,4 @@
-import {createElement,memo,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
+import {createElement,memo,useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import type {CSSProperties,ReactNode} from 'react';
 import type {ReaderImage} from '../shared/parity';
 import {createPortal} from 'react-dom';
@@ -9,7 +9,15 @@ export {parseAnsi} from './ansi';
 import './reader-content.css';
 
 export interface ReaderContentProps {html:string;onNavigate?:(url:string)=>void;nqScale?:number;tqScale?:number;onReportScale?:(kind:'nq'|'tq',value:number)=>void}
-const sameReaderContent=(previous:ReaderContentProps,next:ReaderContentProps)=>previous.html===next.html&&(previous.nqScale??100)===(next.nqScale??100)&&(previous.tqScale??100)===(next.tqScale??100);
+export function ReaderContent({html,onNavigate,nqScale=100,tqScale=100,onReportScale}:ReaderContentProps) {
+  // The wrapper receives every parent update. Keep callbacks current while the
+  // expensive document body can still skip unrelated renders such as typing.
+  const callbacks=useRef({onNavigate,onReportScale});
+  useLayoutEffect(()=>{callbacks.current={onNavigate,onReportScale};},[onNavigate,onReportScale]);
+  const navigate=useCallback((url:string)=>{const handler=callbacks.current.onNavigate;return handler?handler(url):window.seekdesk.openExternal(url);},[]);
+  const reportScale=useCallback((kind:'nq'|'tq',value:number)=>callbacks.current.onReportScale?.(kind,value),[]);
+  return <ReaderContentBody html={html} nqScale={nqScale} tqScale={tqScale} onNavigate={navigate} onReportScale={reportScale}/>;
+}
 function CopyButton({value,label='复制'}:{value:string;label?:string}){const [copied,setCopied]=useState(false),[error,setError]=useState('');return <button type="button" title={error||label} onClick={()=>{window.seekdesk.copyText(value).then(()=>{setCopied(true);setError('');setTimeout(()=>setCopied(false),1800);}).catch(error=>setError(String(error.message||error)));}}>{copied?<Check size={14}/>:<Copy size={14}/>}<span>{error|| (copied?'已复制':label)}</span></button>;}
 function ScaleControls({kind,value,onChange}:{kind:'nq'|'tq';value:number;onChange:(value:number)=>void}){const min=kind==='nq'?25:50,values=[...new Set([25,50,75,100,125,150,175,200,value])].filter(n=>n>=min&&n<=200).sort((a,b)=>a-b);return <div className="report-scale-controls"><button type="button" aria-label="缩小报告比例" disabled={value<=min} onClick={()=>onChange(Math.max(min,value-25))}><Minus size={13}/></button><select aria-label={kind==='nq'?'NQ 报告宽度':'TQ 报告大小'} value={value} onChange={event=>onChange(Number(event.target.value))}>{values.map(n=><option key={n} value={n}>{n}%</option>)}</select><button type="button" aria-label="放大报告比例" disabled={value>=200} onClick={()=>onChange(Math.min(200,value+25))}><Plus size={13}/></button><button type="button" aria-label="恢复报告默认大小" title="恢复默认大小，100%" onClick={()=>onChange(100)}><RotateCcw size={13}/></button></div>;}
 function ScaledContent({kind,percentage,children}:{kind:'nq'|'tq';percentage:number;children:ReactNode}){
@@ -54,7 +62,7 @@ function Tabs({node,render,scale,onScale}:{node:HTMLElement;render:(nodes:NodeLi
   if(!tabs.length)return render([...node.childNodes],'fallback');
   return <section className="reader-report-tabs"><div className="report-tab-head" role="tablist">{tabs.map((tab,index)=><button type="button" role="tab" key={index} aria-selected={active===index} onClick={()=>setActive(index)}>{tab.label}</button>)}{kind&&<ScaleControls kind={kind} value={scale(kind)} onChange={value=>onScale(kind,value)}/>}<CopyButton value={tabs.map(tab=>tab.label+'\n'+parseAnsi(tab.pane.textContent||'').map(span=>span.text).join('')).join('\n\n')} label="复制报告"/></div><div className="report-tab-pane" role="tabpanel" aria-label={tabs[Math.min(active,tabs.length-1)].label}>{render(tabs[Math.min(active,tabs.length-1)].pane.childNodes,'tab-'+active,kind)}</div></section>;
 }
-export const ReaderContent = memo(function ReaderContent({html,onNavigate,nqScale=100,tqScale=100,onReportScale}:ReaderContentProps){
+const ReaderContentBody = memo(function ReaderContentBody({html,onNavigate,nqScale=100,tqScale=100,onReportScale}:ReaderContentProps){
   const [localScale,setLocalScale]=useState({nq:nqScale,tq:tqScale}),[gallery,setGallery]=useState<number|null>(null);
   const navigate=useRef(onNavigate),reportScale=useRef(onReportScale);navigate.current=onNavigate;reportScale.current=onReportScale;
   useEffect(()=>setLocalScale({nq:nqScale,tq:tqScale}),[nqScale,tqScale]);
@@ -81,5 +89,5 @@ export const ReaderContent = memo(function ReaderContent({html,onNavigate,nqScal
     return createElement(tag,attributes,render(el.childNodes,key,report));
   });
   return <div className="reader-rich-content">{render(document.body.childNodes,'content')}{gallery!==null&&gallery>=0&&<ImageGallery images={images} index={gallery} onIndex={setGallery} onClose={()=>setGallery(null)}/>}</div>;
-},sameReaderContent);
+});
 export default ReaderContent;

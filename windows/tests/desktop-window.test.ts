@@ -72,7 +72,7 @@ async function fixture(overrides: Partial<DesktopWindowOptions>={},saved?: unkno
   };
   const controller=await DesktopWindowController.load(options);
   const read=async() => JSON.parse(await fs.readFile(path.join(directory,'desktop-window.json'),'utf8'));
-  const cleanup=async() => {controller.dispose();await fs.rm(directory,{recursive:true,force:true});};
+  const cleanup=async() => {controller.dispose();await fs.rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:20});};
   return {directory,controller,app,window,tray,errors,dialogs,choice,read,cleanup};
 }
 async function until(check: () => boolean|Promise<boolean>) {
@@ -142,6 +142,28 @@ test('automatic update checks default on for old state and persist independently
 test('a failed automatic-check preference write rolls back the reported value',async()=>{
   const f=await fixture();
   try{f.controller.flush=async()=>{throw new Error('synthetic disk failure');};await assert.rejects(f.controller.setAutomaticUpdates(false),/synthetic/);assert.equal(f.controller.getPreferences().automaticUpdates!==false,true);}finally{await f.cleanup();}
+});
+
+test('a failed close preference restores the previous value and corrects later queued snapshots',async()=>{
+  const f=await fixture();const flush=f.controller.flush.bind(f.controller);let calls=0;
+  try{
+    f.controller.flush=async()=>{if(++calls===1)throw new Error('synthetic first write failure');await flush();};
+    const close=f.controller.setCloseBehavior('quit'),automatic=f.controller.setAutomaticUpdates(false);
+    await assert.rejects(close,/synthetic/);await automatic;
+    assert.equal(f.controller.getPreferences().closeBehavior,'ask');
+    const saved=await f.read();assert.equal(saved.closeBehavior,'ask');assert.equal(saved.automaticUpdates,false);
+  }finally{await f.cleanup();}
+});
+
+test('an older failed close preference cannot undo a newer successful choice',async()=>{
+  const f=await fixture();const flush=f.controller.flush.bind(f.controller);let rejectFirst!:(reason:Error)=>void,calls=0;
+  try{
+    f.controller.flush=async()=>{if(++calls===1)return new Promise<void>((_resolve,reject)=>{rejectFirst=reject;});await flush();};
+    const stale=f.controller.setCloseBehavior('quit');
+    await f.controller.setCloseBehavior('tray');rejectFirst(new Error('synthetic late failure'));
+    await assert.rejects(stale,/synthetic/);
+    assert.equal(f.controller.getPreferences().closeBehavior,'tray');assert.equal((await f.read()).closeBehavior,'tray');
+  }finally{await f.cleanup();}
 });
 
 test('queued close and automatic-check writes retain both final preferences',async()=>{
@@ -300,4 +322,18 @@ test('concurrent quit requests cannot bypass the pending save and cleanup',async
     assert.equal(f.app.actualQuits,1);assert.equal(f.window.destroyed,true);
     await f.controller.flush();
   } finally {release();await f.cleanup();}
+});
+
+test('a refused final save keeps the window open and allows a later quit retry',async()=>{
+  let attempts=0;
+  const f=await fixture({onFinalQuit:async()=>{if(++attempts===1)throw Error('synthetic renderer save refusal');}});
+  try{
+    f.controller.attach(f.window);f.app.onAllowedQuit=()=>f.window.requestClose();
+    f.window.hidden=true;
+    await f.controller.quit();
+    assert.equal(f.app.actualQuits,0);assert.equal(f.window.destroyed,false);assert.equal(f.window.hidden,false);
+    assert.match(String(f.errors.at(-1)),/synthetic renderer save refusal/);
+    await f.controller.quit();
+    assert.equal(attempts,2);assert.equal(f.app.actualQuits,1);assert.equal(f.window.destroyed,true);
+  }finally{await f.cleanup();}
 });

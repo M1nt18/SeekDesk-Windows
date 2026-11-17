@@ -43,8 +43,13 @@ export function useUpdateDraftSaver(saver:UpdateDraftSaver,options:UpdateDraftSa
 }
 
 /** Concurrent install requests wait for the same set of pending local writes. */
-export function flushUpdateDrafts(options?:{owner?:number}):Promise<void> {
-  if(flushing)return flushing;
+export function flushUpdateDrafts(options?:{owner?:number;fresh?:boolean}):Promise<void> {
+  if(flushing){
+    // A canceled native exit can leave an old disk write in flight. A later
+    // explicit exit must save the newly edited text after that round settles.
+    if(options?.fresh){const previous=flushing;return previous.catch(()=>{}).then(()=>flushUpdateDrafts(options));}
+    return flushing;
+  }
   const matches=(entry:DraftRegistration)=>!options||entry.owner()===undefined||entry.owner()===options.owner;
   for(const entry of detached)if(!matches(entry))detached.delete(entry);
   const seen=new Set<DraftRegistration>();

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, ipcMain, session, shell, clipboard, Notification, globalShortcut, nativeImage, dialog, screen, Tray, Menu, type Session, type IpcMainInvokeEvent, type WebContents } from 'electron';
+import { app, autoUpdater, BrowserWindow, WebContentsView, ipcMain, session, shell, clipboard, Notification, globalShortcut, nativeImage, dialog, screen, Tray, Menu, type Session, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -6,13 +6,15 @@ import type { AccountState, ListingRequest, ListingResult, Post, ThreadResult, O
 import { FORUM_ORIGIN, RSS_URL, isOfficialUrl, normalizePostUrl, listingUrl, parseRss, sanitizeContent, extractListingScript, extractThreadScript, extractIdentityScript, captureTerminalsScript } from './forum';
 import {MemberProfilesService,createUserProfileScript,type ProfileFetchResult} from './member-profiles';
 import {createActionScript,validateActionRequest} from './interactions';
-import { Store, validateSettings, validateWorkspace, validateBlockedUsers } from './store';
+import { Store, validateWorkspace, validateBlockedUsers } from './store';
+import {restoredWorkspace} from '../shared/restored-workspace';
+import {canAccessLocalDraft} from '../shared/draft-owner';
 import {UserscriptHost} from './userscripts';
 import {DesktopWindowController} from './desktop-window';
 import {UpdaterService} from './updater';
 import {ReadingLibraryStore} from './reading-library';
 import {prepareCaptureMode,captureModeImage,type CaptureMode} from './capture-mode';
-import {ParityStore,validateAppearance,validateHistory} from './parity-store';
+import {ParityStore,validateHistory} from './parity-store';
 import {MediaService} from './media';
 import {ExtensionsService} from './extensions';
 import {createQueryScript,createWriteScript,requestPage,validateQueryRequest,validateWriteRequest} from './parity-forum';
@@ -476,24 +478,31 @@ async function loadAvatar(input: unknown): Promise<string | null> {
     avatarCache.set(id,{data,time:Date.now()});return data;
   } catch {return null;} finally {clearTimeout(timer);}
 }
-async function prepareUpdateInstall() {
-  const contents=mainWindow?.webContents;
-  if(!contents||contents.isDestroyed()||contents.isLoadingMainFrame())throw new Error('客户端尚未就绪');
-  closeOfficial();
-  await new Promise<void>((resolve,reject)=>{
-    const id=++updatePrepareSequence;
-    const onDestroyed=()=>finish(false);
-    const timer=setTimeout(()=>finish(false),15000);
-    const finish=(success:boolean)=>{
-      if(updatePreparation?.id!==id)return;
-      clearTimeout(timer);contents.removeListener('destroyed',onDestroyed);updatePreparation=undefined;
-      if(success)resolve();else reject(new Error('当前编辑内容未能保存'));
-    };
-    updatePreparation={id,contents,finish};
-    contents.once('destroyed',onDestroyed);
-    contents.send('app:update-prepare',id);
-  });
-  await Promise.all([store.save(),features.save(),desktopWindow.flush()]);
+async function prepareRendererSave(reason:'quit'|'update') {
+  const contents=mainWindow&&!mainWindow.isDestroyed()?mainWindow.webContents:undefined;
+  if(reason==='quit'&&(!contents||contents.isDestroyed())){
+    await Promise.all([store?.save(),features?.save(),desktopWindow?.flush()]);
+    return;
+  }
+  try{
+    if(!contents||contents.isDestroyed()||contents.isLoadingMainFrame())throw new Error('客户端尚未就绪');
+    if(updatePreparation)throw new Error('正在保存当前编辑内容，请稍后重试');
+    closeOfficial();
+    await new Promise<void>((resolve,reject)=>{
+      const id=++updatePrepareSequence;
+      const onDestroyed=()=>finish(false);
+      const timer=setTimeout(()=>finish(false),15000);
+      const finish=(success:boolean)=>{
+        if(updatePreparation?.id!==id)return;
+        clearTimeout(timer);contents.removeListener('destroyed',onDestroyed);updatePreparation=undefined;
+        if(success)resolve();else reject(new Error('当前编辑内容未能保存'));
+      };
+      updatePreparation={id,contents,finish};
+      contents.once('destroyed',onDestroyed);
+      contents.send('app:update-prepare',id,reason);
+    });
+    await Promise.all([store.save(),features.save(),desktopWindow.flush()]);
+  }catch(error){if(contents&&!contents.isDestroyed())contents.send('app:save-cancelled',reason);throw error;}
 }
 function registerIPC() {
   const handle = (name: string, fn: (...args: any[]) => unknown) => ipcMain.handle(name, async (event,...args) => {assertLocal(event); return fn(...args);});
@@ -544,10 +553,10 @@ function registerIPC() {
   handle('parity:query',queryForum);
   handle('parity:write',(request,owner)=>{assertOwner(owner);return writeForum(request);});
   handle('parity:bootstrap',async()=>({extensions:extensions.getState(),appearance:features.appearance,media:media.settings(),stickers:await media.getStickers(),searchHistory:features.history}));
-  handle('parity:appearance',async(value:unknown)=>{features.appearance=validateAppearance(value);await features.save();applyBrandIcon();return features.appearance;});
+  handle('parity:appearance',async(value:unknown)=>{const appearance=await features.commitAppearance(value);applyBrandIcon();return appearance;});
   handle('parity:history',async(value:unknown)=>{features.history=validateHistory(value);await features.save();});
-  handle('parity:draft-load',(key:string,owner?:number)=>features.loadDraft(account.status==='signed-in'&&account.id===owner?owner:undefined,key));
-  handle('parity:draft-save',(key:string,value:unknown,owner?:number)=>{if(account.status!=='signed-in'||!owner||account.id!==owner)throw new Error('草稿所属账号已变化，未保存到其他账号');return features.saveDraft(owner,key,value);});
+  handle('parity:draft-load',(key:string,owner?:number)=>features.loadDraft(canAccessLocalDraft(account,confirmedIdentity,owner)?owner:undefined,key));
+  handle('parity:draft-save',(key:string,value:unknown,owner?:number)=>{if(!canAccessLocalDraft(account,confirmedIdentity,owner))throw new Error('草稿所属账号已变化，未保存到其他账号');return features.saveDraft(owner,key,value);});
   handle('parity:contacts-read',(owner?:number)=>{assertOwner(owner);return features.readConversationContacts(account.id);});
   handle('parity:contacts-remember',(contact,owner?:number)=>{assertOwner(owner);return features.rememberConversationContact(account.id,contact);});
   handle('media:upload',(input)=>media.upload(input));
@@ -562,7 +571,7 @@ function registerIPC() {
   handle('media:remove',(id)=>media.removeSticker(id));
   handle('media:sticker-upload',(id)=>media.uploadSticker(id));
   handle('extensions:get',()=>extensions.getState());
-  handle('extensions:save',async(value)=>{if(!value||typeof value!=='object'||JSON.stringify(value).length>1000000)throw new Error('扩展设置无效');const state=extensions.update(value);await features.save();return state;});
+  handle('extensions:save',async(value)=>{if(!value||typeof value!=='object'||JSON.stringify(value).length>1000000)throw new Error('扩展设置无效');return extensions.commitUpdate(value,state=>features.commitExtensions(state));});
   handle('extensions:ranking',(period:RankingPeriod,force?:boolean)=>extensions.rankings(period,force===true));
   handle('extensions:rulings',async(id:number,username?:string)=>{if(!Number.isSafeInteger(id)||id<(username?0:1))throw new Error('用户编号无效');if(!username){const result=await queryForum({kind:'introduction',memberId:id});username=result.profile?.name;}return extensions.rulings(id,username||'');});
   handle('extensions:rates',(base)=>extensions.exchangeRates(base));
@@ -570,7 +579,7 @@ function registerIPC() {
   handle('extensions:boss-toggle',()=>toggleBoss());
   handle('app:clipboard',(value:unknown)=>{if(typeof value!=='string'||value.length>2000000)throw new Error('复制文本无效');return clipboard.writeText(value);});
   handle('app:updates',()=>updater.check());
-  handle('app:bootstrap', () => ({settings:store.settings,workspace:store.settings.restoreTabs ? store.workspace : {tabs:[],activeId:null,overviewOpen:store.workspace.overviewOpen ?? true,listHidden:store.workspace.listHidden===true},account,version:app.getVersion(),buildNumber,official:officialState,blockedUsers:store.blockedUsers}));
+  handle('app:bootstrap', () => ({settings:store.settings,workspace:store.settings.restoreTabs ? restoredWorkspace(store.workspace) : {tabs:[],activeId:null,overviewOpen:store.workspace.overviewOpen ?? true,listHidden:store.workspace.listHidden===true},account,version:app.getVersion(),buildNumber,official:officialState,blockedUsers:store.blockedUsers}));
   handle('forum:list', (request: ListingRequest) => listPosts(request || {}));
   handle('forum:thread', readThread);
   handle('forum:profiles',request=>memberProfiles.read(request));
@@ -609,18 +618,17 @@ function registerIPC() {
     setAccount({status:'signed-out'});
   });
   handle('app:settings', async (value: unknown) => {
-    const next=validateSettings(value);
-    const scriptChanged=store.settings.nodeSeekPro!==next.nodeSeekPro;
-    store.settings=next;await store.save();
+    const {settings:next,previous}=await store.commitSettings(value);
+    const scriptChanged=previous.nodeSeekPro!==next.nodeSeekPro;
     if(officialView) {
-      officialView.webContents.setZoomFactor(store.settings.uiFontSize/16);
+      officialView.webContents.setZoomFactor(next.uiFontSize/16);
       if(scriptChanged) {
         if(officialState.visible)officialView.webContents.reload();
         else destroyOfficial();
       }
     }
-    calculatorView?.webContents.setZoomFactor(store.settings.uiFontSize/16);
-    return store.settings;
+    calculatorView?.webContents.setZoomFactor(next.uiFontSize/16);
+    return next;
   });
   handle('app:workspace', async (value: unknown) => {store.workspace=validateWorkspace(value); await store.save();});
   ipcMain.on('app:window',(event,action) => {assertLocal(event); if (action==='close') mainWindow?.close(); else if(action==='minimize') mainWindow?.minimize(); else if(action==='maximize' && mainWindow) {if(mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize();}});
@@ -664,14 +672,14 @@ else {
     media=new MediaService(app.getPath('userData'),()=>mainWindow);
     readingLibrary=new ReadingLibraryStore(app.getPath('userData'));
     await Promise.all([features.load(),media.load(),readingLibrary.load()]);
-    desktopWindow=await DesktopWindowController.load({directory:app.getPath('userData'),app,screen,dialog,createTray:icon=>new Tray(icon),createMenu:template=>Menu.buildFromTemplate(template),trayIcon:path.join(__dirname,'../../build/icon.ico'),onFinalQuit:async()=>{await Promise.all([store.save(),features.save()]);}});
+    desktopWindow=await DesktopWindowController.load({directory:app.getPath('userData'),app,screen,dialog,createTray:icon=>new Tray(icon),createMenu:template=>Menu.buildFromTemplate(template),trayIcon:path.join(__dirname,'../../build/icon.ico'),onFinalQuit:()=>prepareRendererSave('quit')});
     const installed=app.isPackaged&&process.platform==='win32'&&!process.env.PORTABLE_EXECUTABLE_DIR&&await fs.stat(path.join(path.dirname(process.execPath),'Uninstall SeekDesk Windows.exe')).then(value=>value.isFile()).catch(()=>false);
-    updater=new UpdaterService({currentVersion:app.getVersion(),isPackaged:app.isPackaged,isInstalled:installed,userDataDirectory:app.getPath('userData'),automaticChecks:desktopWindow.getPreferences().automaticUpdates!==false,beforeInstall:prepareUpdateInstall,onChange:state=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('app:update-change',state);}});
+    updater=new UpdaterService({currentVersion:app.getVersion(),isPackaged:app.isPackaged,isInstalled:installed,userDataDirectory:app.getPath('userData'),automaticChecks:desktopWindow.getPreferences().automaticUpdates!==false,beforeInstall:()=>prepareRendererSave('update'),onChange:state=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('app:update-change',state);}});
     extensions=new ExtensionsService(features.extensions,{
       getAccount:()=>account,
       readAttendance:async()=>{const result=await queryForum({kind:'attendance-status'});return result.attendance||{kind:'failed'};},
       performAttendance:async(mode)=>{const result=await writeForum({kind:'attendance',mode},true);return result.attendance||{kind:'failed',message:result.message};},
-      onChange:state=>{features.extensions=state;void features.save().catch(error=>console.error('保存扩展设置失败',error));mainWindow?.webContents.send('extensions:change',state);},
+      onChange:(state,persisted)=>{features.extensions=state;if(!persisted)void features.save().catch(error=>console.error('保存扩展设置失败',error));mainWindow?.webContents.send('extensions:change',state);},
       onBossKey:configureBoss,
       onMatch:hit=>{if(!extensions.getState().watchSystemNotifications||!Notification.isSupported())return;const notification=new Notification({title:'SeekDesk · 关键词提醒',body:hit.post.title,silent:false});notification.on('click',()=>{mainWindow?.show();mainWindow?.focus();mainWindow?.webContents.send('app:open-post',hit.post);});notification.show();}
     });
@@ -683,5 +691,8 @@ else {
     if(!testing)void updater.initialize().catch(()=>{});
   }).catch(error => {console.error('SeekDesk startup failed:',error);app.quit();});
 }
+// The verified updater already awaited renderer persistence before installation.
+// Its native quit event must not start a second ordinary-exit preparation.
+autoUpdater.on('before-quit-for-update',()=>desktopWindow?.allowQuit());
 app.on('window-all-closed',() => app.quit());
 app.on('will-quit',()=>{memberProfiles.dispose();profileWindow?.destroy();extensions?.dispose();updater?.dispose();desktopWindow?.dispose();globalShortcut.unregisterAll();});

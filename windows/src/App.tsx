@@ -9,6 +9,7 @@ import './thread-stream.css';
 import {mergeThreadPage,isThreadCommentVisible,countAddedVisibleComments} from '../shared/thread-stream';
 import {captureThreadAnchor,restoreThreadAnchor,type ThreadScrollAnchor} from './thread-scroll';
 import {SIDEBAR_STANDARD,clampSidebarWidth} from '../shared/layout';
+import {restoredWorkspace} from '../shared/restored-workspace';
 import type {ReadingLibraryState,ReadingLibraryMutation} from '../shared/library';
 import {ReadingLibraryPanel,type ReadingLibraryMode,type ReadingCommand} from './components/ReadingLibraryPanel';
 import type { CSSProperties, FormEvent, MouseEvent, ReactNode } from 'react';
@@ -39,6 +40,7 @@ const defaults: Settings = {theme:'system',uiFontSize:16,fontSize:18,compact:fal
 type ThreadState = {loading:boolean;result?:ThreadResult;error?:string;requestedPage:number;visitRevision?:number;appendLoading?:boolean;appendError?:string;appendPaused?:boolean;emptyPageCount?:number;streamStartPage?:number;streamFloorPages?:Record<string,number>};
 type ReactionConfirmation = {request:Extract<ForumActionRequest,{kind:'react'}>;approval:'free'|'paid';message:string};
 type ToastTone = 'info'|'success'|'error';
+type ReplyDraftSnapshot={content:string;imageWidths:Record<string,number>;dirty:boolean};
 const emptyLibrary:ReadingLibraryState={bookmarks:[],history:[]};
 
 function postFromUrl(value:string):Post|null {
@@ -60,6 +62,7 @@ export default function App() {
   const [ready,setReady]=useState(false),[bootError,setBootError]=useState('');
   const [updatePreparing,setUpdatePreparing]=useState(false),updatePreparingRef=useRef(false),draftsOwner=useRef<number|undefined>(undefined),updateOwner=useRef<number|undefined>(undefined);
   updatePreparingRef.current=updatePreparing;
+  const [preparationReason,setPreparationReason]=useState<'quit'|'update'>('update'),preparationReasonRef=useRef<'quit'|'update'|null>(null),preparationEpoch=useRef(0);
   const [settings,setSettings]=useState<Settings>(defaults),[version,setVersion]=useState('0.1.0');
   const [buildNumber,setBuildNumber]=useState<string>();
   const [account,setAccount]=useState<AccountState>({status:'unknown'});
@@ -102,6 +105,8 @@ export default function App() {
   const [rulingMember,setRulingMember]=useState<{id:number;name:string}|null>(null),[keywordAlerts,setKeywordAlerts]=useState<KeywordHit[]>([]);const seenHits=useRef<Set<string>|null>(null);
   const parityReady=useRef(false),prefetchedSearch=useRef(false);
   const draggedTab=useRef<string|null>(null),draftReady=useRef(''),appearanceRequest=useRef(0),replyWidths=useRef<Record<string,number>>({});
+  const replyDrafts=useRef(new Map<string,ReplyDraftSnapshot>()),replyEdits=useRef(new Set<string>()),replyWidthEdits=useRef(new Set<string>()),replyWidthDrafts=useRef(new Map<string,Record<string,number>>());
+  const [replyDraftRetry,setReplyDraftRetry]=useState(0),[replyDraftError,setReplyDraftError]=useState(''),[replyWidthRevision,setReplyWidthRevision]=useState(0);
   const listRequest=useRef(0),threadRequests=useRef(new Map<string,number>()),settingsRequest=useRef(0),actionEpoch=useRef(0);
   const searchRef=useRef<HTMLInputElement>(null),readerRef=useRef<HTMLDivElement>(null),replyRef=useRef<HTMLTextAreaElement>(null);
   const scrollPositions=useRef(new Map<string,number>());
@@ -186,6 +191,7 @@ export default function App() {
   },[ready,activeId,activeThread?.result,activeThread?.loading,libraryScope,libraryMode!==null,showSettings,official.visible,view,mutateLibrary]);
   useEffect(()=>{
     const keys=(event:KeyboardEvent)=>{
+      if(libraryMode===null&&document.querySelector('[role="dialog"][aria-modal="true"]'))return;
       if(!ready||updatePreparingRef.current)return;
       if((event.ctrlKey||event.metaKey)&&event.shiftKey&&!event.altKey&&['b','l','p'].includes(event.key.toLowerCase())){
         event.preventDefault();event.stopImmediatePropagation();if(event.repeat)return;
@@ -205,7 +211,7 @@ export default function App() {
       const data=await window.seekdesk.bootstrap();
       setSettings(data.settings);setAccount(data.account);setVersion(data.version);setBuildNumber(data.buildNumber);setOfficial(data.official);setBlockedUsers(data.blockedUsers||[]);
       confirmedIdentity.current=data.account.status==='signed-in'?String(data.account.id||data.account.name):data.account.status==='signed-out'?'signed-out':null;
-      if(data.settings.restoreTabs){scrollPositions.current=new Map(Object.entries(data.workspace.scrollPositions||{}));restoredAnchors.current=new Map(Object.entries(data.workspace.readingAnchors||{}));setTabs(data.workspace.tabs.map(post=>({...post,title:post.title||`帖子 #${post.id}`})));setActiveId(data.workspace.activeId);setOverviewOpen(data.workspace.overviewOpen!==false);}
+      if(data.settings.restoreTabs){scrollPositions.current=new Map(Object.entries(data.workspace.scrollPositions||{}));restoredAnchors.current=new Map(Object.entries(data.workspace.readingAnchors||{}));setTabs(restoredWorkspace(data.workspace).tabs);setActiveId(data.workspace.activeId);setOverviewOpen(data.workspace.overviewOpen!==false);}
       setListHidden(data.workspace.listHidden===true);
       setReady(true);
     } catch(error){setBootError(errorMessage(error));}
@@ -237,13 +243,14 @@ export default function App() {
   useEffect(()=>{
     if(!ready)return;
     return window.seekdesk.onAccountChange(next=>{
+      updateOwner.current=next.id;
       if(next.status==='signed-in'||next.status==='signed-out'){
         const identity=next.status==='signed-in'?String(next.id||next.name):'signed-out';
         const previous=confirmedIdentity.current;
         if(previous!==identity&&(previous!==null||next.status==='signed-in')){
           ++listRequest.current;++actionEpoch.current;
           for(const[id,token]of threadRequests.current)threadRequests.current.set(id,token+1);
-          draftsOwner.current=undefined;streamLocations.current.clear();if(previous!==null)restoredAnchors.current.clear();appendLocks.current.clear();appendAnchors.current.clear();setThreads({});setDrafts({});setOwnSignature(null);setPostContext(null);setLibraryMode(null);++libraryRequest.current;setLibrarySnapshot({scope:'',data:emptyLibrary});setLibraryError('');setLibraryLoading(false);setInlineEdit(null);setFloorNotice(null);setUserCardMember(null);setFollowing([]);setActionBusy('');setReplyTargets({});setReplyStatus(null);setExpandedBlocked([]);setReactionConfirmation(null);setMessageTarget(null);setMessageContent('');setProfile(null);setInitialPeer(undefined);setView('forum');setMediaOpen(false);setSearchOpen(false);
+          draftsOwner.current=undefined;replyDrafts.current.clear();replyEdits.current.clear();replyWidthEdits.current.clear();replyWidthDrafts.current.clear();setReplyDraftError('');streamLocations.current.clear();if(previous!==null)restoredAnchors.current.clear();appendLocks.current.clear();appendAnchors.current.clear();setThreads({});setDrafts({});setOwnSignature(null);setPostContext(null);setLibraryMode(null);++libraryRequest.current;setLibrarySnapshot({scope:'',data:emptyLibrary});setLibraryError('');setLibraryLoading(false);setInlineEdit(null);setFloorNotice(null);setUserCardMember(null);setFollowing([]);setActionBusy('');setReplyTargets({});setReplyStatus(null);setExpandedBlocked([]);setReactionConfirmation(null);setMessageTarget(null);setMessageContent('');setProfile(null);setInitialPeer(undefined);setView('forum');setMediaOpen(false);setSearchOpen(false);
           // Guest public URLs can stay open after login; an actual account
           // boundary discards all previously opened private reading metadata.
           if(previous!==null&&previous!=='signed-out'){setTabs([]);setActiveId(null);}
@@ -276,7 +283,8 @@ export default function App() {
     catch(error){if(token===listRequest.current)setListingError(errorMessage(error));}
     finally{if(token===listRequest.current)setListingLoading(false);}
   },[category,order,page,serverSearch]);
-  useEffect(()=>{if(ready){if(prefetchedSearch.current){prefetchedSearch.current=false;return;}setListing(null);void loadListing();}},[ready,loadListing,settings.defaultSource,accountRevision]);
+  const latestLoadListing=useRef(loadListing);latestLoadListing.current=loadListing;
+  useEffect(()=>{if(ready){if(prefetchedSearch.current){prefetchedSearch.current=false;return;}setListing(null);void loadListing();}},[ready,loadListing,accountRevision]);
   const loadThread=useCallback(async(post:Post,targetPage=1,returnAnchor?:ThreadScrollAnchor)=>{
     const token=(threadRequests.current.get(post.id)||0)+1;threadRequests.current.set(post.id,token);
     appendLocks.current.delete(post.id);appendAnchors.current.delete(post.id);streamLocations.current.delete(post.id);
@@ -371,10 +379,11 @@ export default function App() {
   const closeOverview=useCallback(()=>{setOverviewOpen(false);if(!activeId&&tabs.length)setActiveId(tabs[0].id);},[activeId,tabs]);
   useEffect(()=>{
     const onKey=(event:KeyboardEvent)=>{
+      if(event.defaultPrevented||updatePreparingRef.current||document.querySelector('[role="dialog"][aria-modal="true"]'))return;
       if((event.ctrlKey||event.metaKey)&&event.key===','){event.preventDefault();leaveOfficial(()=>{setShowSettings(true);setView('forum');});}
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){event.preventDefault();leaveOfficial(()=>setSearchOpen(true));}
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='r'){event.preventDefault();if(activePost&&effectiveListHidden)void refreshVisibleThread();else void loadListing();}
-      if(event.ctrlKey&&event.key==='Tab'){event.preventDefault();if(tabs.length){const index=tabs.findIndex(tab=>tab.id===activeId),next=(index+(event.shiftKey?-1:1)+tabs.length)%tabs.length;leaveOfficial(()=>{setActiveId(tabs[next].id);setShowSettings(false);setView('forum');});}}
+      if(event.ctrlKey&&event.key==='Tab'){event.preventDefault();if(tabs.length){const index=tabs.findIndex(tab=>tab.id===activeId),next=index<0?(event.shiftKey?tabs.length-1:0):(index+(event.shiftKey?-1:1)+tabs.length)%tabs.length;leaveOfficial(()=>{setActiveId(tabs[next].id);setShowSettings(false);setView('forum');});}}
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='w'){
         if(official.visible){event.preventDefault();leaveOfficial();}else if(activeId){event.preventDefault();closeTab(activeId);}else if(overviewOpen){event.preventDefault();closeOverview();}
       }
@@ -389,7 +398,7 @@ export default function App() {
 
   const updateSettings=async(patch:Partial<Settings>)=>{
     const previous=settings,next={...settings,...patch},token=++settingsRequest.current;setSettings(next);
-    try{const saved=await window.seekdesk.saveSettings(next);if(token===settingsRequest.current){setSettings(saved);notify('设置已保存','success');}}
+    try{const saved=await window.seekdesk.saveSettings(next);if(token===settingsRequest.current){setSettings(saved);notify('设置已保存','success');}if(previous.defaultSource!==saved.defaultSource)void latestLoadListing.current();}
     catch(error){if(token===settingsRequest.current)setSettings(previous);notify(`设置保存失败：${errorMessage(error)}`,'error');}
   };
   const checkAccount=async()=>{
@@ -429,16 +438,34 @@ export default function App() {
     catch(error){if(epoch===actionEpoch.current){if(request.kind==='react'){const post=postFromUrl(request.url);if(post)setFloorNotice({postId:post.id,floor:request.commentId,text:errorMessage(error),error:true});}else notify(errorMessage(error),'error');}return null;}
     finally{if(epoch===actionEpoch.current&&(request.kind!=='reply'||replySubmission.current!==epoch))setActionBusy('');}
   };
+  const saveReplyDraft=useCallback(async(id:string,owner:number,snapshot:ReplyDraftSnapshot)=>{
+    if(!snapshot.dirty)return;
+    await window.seekdesk.saveDraft('reply:'+id,{content:snapshot.content,imageWidths:snapshot.imageWidths},owner);
+    if(replyDrafts.current.get(owner+':'+id)===snapshot)snapshot.dirty=false;
+  },[]);
+  const editReply=(value:string|((previous:string)=>string))=>{
+    if(!activePost||!account.id||updateOwner.current!==account.id)return;
+    const id=activePost.id,scope=account.id+':'+id,content=typeof value==='function'?value(latestDrafts.current[id]||''):value;
+    latestDrafts.current={...latestDrafts.current,[id]:content};setDrafts(current=>({...current,[id]:content}));replyEdits.current.add(scope);
+    if(draftReady.current==='reply:'+id)replyDrafts.current.set(scope,{content,imageWidths:{...replyWidths.current},dirty:true});
+  };
+  const editReplyWidths=(value:Record<string,number>)=>{
+    if(!activePost||!account.id||updateOwner.current!==account.id)return;
+    const id=activePost.id,scope=account.id+':'+id;replyWidths.current={...value};replyWidthDrafts.current.set(scope,{...value});replyWidthEdits.current.add(scope);
+    if(draftReady.current==='reply:'+id)replyDrafts.current.set(scope,{content:latestDrafts.current[id]||'',imageWidths:{...value},dirty:true});
+    setReplyWidthRevision(current=>current+1);
+  };
   const sendReply=async()=>{
     if(!activePost||!account.id||getComposerUploadCount()>0||replySubmission.current===actionEpoch.current)return;
     const post=activePost,owner=account.id,epoch=actionEpoch.current,raw=(drafts[post.id]||'').trim();if(!raw)return;
+    if(draftReady.current!=='reply:'+post.id){notify('回复草稿尚未读取完成，请先重试草稿读取。','error');return;}
     if(raw.length>20000){notify('回复不能超过 20,000 字，请精简后再提交。');return;}
     replySubmission.current=epoch;setActionBusy(`reply:${post.id}`);
     try{
       const content=await window.seekdesk.prepareImages(raw,replyWidths.current);
       if(epoch!==actionEpoch.current)return;
       const result=await performForumAction({kind:'reply',url:post.url,content},`reply:${post.id}`);if(!result||epoch!==actionEpoch.current)return;
-      if((latestDrafts.current[post.id]||'').trim()===raw){setDrafts(current=>({...current,[post.id]:current[post.id]?.trim()===raw?'':current[post.id]}));void window.seekdesk.saveDraft(`reply:${post.id}`,null,owner).catch(()=>{});}
+      if((latestDrafts.current[post.id]||'').trim()===raw){latestDrafts.current={...latestDrafts.current,[post.id]:''};replyDrafts.current.set(owner+':'+post.id,{content:'',imageWidths:{},dirty:false});replyWidthDrafts.current.set(owner+':'+post.id,{});if(activeIdRef.current===post.id)replyWidths.current={};setDrafts(current=>({...current,[post.id]:current[post.id]?.trim()===raw?'':current[post.id]}));void window.seekdesk.saveDraft(`reply:${post.id}`,null,owner).catch(()=>{});}
       if(activeIdRef.current!==post.id)return;
       setReplyExpanded(false);
       const destination=result.destination,targetPost=destination?{...post,url:destination.url}:post,targetPage=destination?.page||activeThread?.result?.page||1;
@@ -453,7 +480,7 @@ export default function App() {
       }
       if(destination?.floor)setReplyStatus({postId:post.id,url:destination.url,floor:destination.floor,message:'回复已发布，站点暂未同步新楼层。请稍后刷新，勿重复提交。',waiting:false});
     }catch(error){if(epoch===actionEpoch.current)notify(errorMessage(error),'error');}
-    finally{if(replySubmission.current===epoch)replySubmission.current=null;if(epoch===actionEpoch.current)setActionBusy('');}
+    finally{if(replySubmission.current===epoch)replySubmission.current=null;if(epoch===actionEpoch.current){setActionBusy('');const pending=replyDrafts.current.get(owner+':'+post.id);if(pending?.dirty&&activeIdRef.current!==post.id)void saveReplyDraft(post.id,owner,pending).catch(error=>notify('回复草稿未能保存：'+errorMessage(error),'error'));}}
   };
   const insertFloorReference=(comment:Comment,quoting:boolean)=>{
     if(account.status!=='signed-in'){void action(()=>window.seekdesk.openOfficial(account.status==='verification'?activePost?.url:undefined));return;}
@@ -525,11 +552,50 @@ export default function App() {
     return <section className="discussion-heading" aria-label="楼层回复"><header><h2>楼层回复</h2><div>{extensions.installed.includes('authorOnly')&&extensions.enabled.includes('authorOnly')&&<button className="author-only-toggle" aria-pressed={onlyAuthor} onClick={()=>void saveExtensions({...extensions,authorOnly:!extensions.authorOnly}).catch(error=>notify(errorMessage(error),'error'))}><span aria-hidden="true"/>只看楼主</button>}{hasThreadPagination(result)&&<small>第 {result.page} 页</small>}</div></header><ThreadPagination {...result} loading={activeThread.loading} onPage={changeThreadPage} label="帖子顶部分页"/>{!replies.length&&<p className="discussion-empty">{onlyAuthor?'当前已加载页面中暂无楼主回复。':result.nextPage?'本页暂未显示回复，继续向下可读取下一页。':'还没有回复。'}</p>}</section>;
   };
   const loadOlder=async()=>{if(!listing?.nextPage||loadingOlder)return;setLoadingOlder(true);const token=listRequest.current;try{const next=serverSearch?await window.seekdesk.queryForum({kind:'search',term:serverSearch.term,categories:serverSearch.categories,page:listing.nextPage}).then(result=>({posts:result.posts||[],source:'web' as const,fetchedAt:new Date().toISOString(),nextPage:result.nextPage||null})):await window.seekdesk.listPosts({category,order,page:listing.nextPage});if(token===listRequest.current)setListing(current=>current?{...next,posts:[...current.posts,...next.posts.filter(post=>!current.posts.some(item=>item.id===post.id))]}:next);}catch(error){notify(errorMessage(error),'error');}finally{setLoadingOlder(false);}};
-  useEffect(()=>{if(!ready||!activePost||!account.id)return;const key=`reply:${activePost.id}`,initial=latestDrafts.current[activePost.id];let current=true;draftReady.current='';void window.seekdesk.loadDraft(key,account.id).then(value=>{if(current){replyWidths.current=value?.imageWidths||{};draftsOwner.current=account.id;draftReady.current=key;setDrafts(drafts=>drafts[activePost.id]!==initial?drafts:{...drafts,[activePost.id]:value?.content??drafts[activePost.id]??''});}}).catch(()=>{if(current){draftsOwner.current=account.id;draftReady.current=key;}});return()=>{current=false;};},[activePost?.id,account.id,ready]);
-  useEffect(()=>{if(!activePost||!account.id||draftReady.current!==`reply:${activePost.id}`)return;const timer=setTimeout(()=>void window.seekdesk.saveDraft(`reply:${activePost.id}`,{content:reply,imageWidths:replyWidths.current},account.id).catch(()=>{}),500);return()=>clearTimeout(timer);},[activePost?.id,reply,account.id]);
-  useEffect(()=>{if(!ready||!appearance.autoRefresh)return;const timer=setInterval(()=>{if(view==='forum'&&!activeId&&!official.visible&&!document.hidden)void loadListing();},60000);return()=>clearInterval(timer);},[ready,appearance.autoRefresh,view,activeId,official.visible,loadListing]);
+  useEffect(()=>{
+    if(!ready||!activePost||!account.id)return;
+    const id=activePost.id,owner=account.id,key='reply:'+id,scope=owner+':'+id,epoch=actionEpoch.current;let current=true;
+    draftReady.current='';setReplyDraftError('');replyWidths.current={...(replyWidthDrafts.current.get(scope)||{})};
+    const install=(snapshot:ReplyDraftSnapshot)=>{replyDrafts.current.set(scope,snapshot);replyWidths.current={...snapshot.imageWidths};replyWidthDrafts.current.set(scope,{...snapshot.imageWidths});draftsOwner.current=owner;draftReady.current=key;latestDrafts.current={...latestDrafts.current,[id]:snapshot.content};setDrafts(previous=>({...previous,[id]:snapshot.content}));setReplyWidthRevision(value=>value+1);};
+    const cached=replyDrafts.current.get(scope);
+    if(cached){const content=latestDrafts.current[id]??cached.content;install(content===cached.content?cached:{...cached,content,dirty:true});}
+    else void window.seekdesk.loadDraft(key,owner).then(value=>{
+      if(!current||epoch!==actionEpoch.current||updateOwner.current!==owner)return;
+      const edited=replyEdits.current.has(scope),widthsEdited=replyWidthEdits.current.has(scope);
+      install({content:edited?latestDrafts.current[id]||'':value?.content??latestDrafts.current[id]??'',imageWidths:{...(widthsEdited?replyWidths.current:value?.imageWidths||{})},dirty:edited||widthsEdited});
+      replyEdits.current.delete(scope);replyWidthEdits.current.delete(scope);
+    }).catch(error=>{if(current&&epoch===actionEpoch.current&&updateOwner.current===owner)setReplyDraftError(errorMessage(error));});
+    return()=>{current=false;};
+  },[activePost?.id,account.id,ready,replyDraftRetry]);
+  useEffect(()=>{
+    if(!activePost||!account.id||draftReady.current!=='reply:'+activePost.id)return;
+    const id=activePost.id,owner=account.id,scope=owner+':'+id;let snapshot=replyDrafts.current.get(scope);
+    if(!snapshot||snapshot.content!==reply){snapshot={content:reply,imageWidths:{...replyWidths.current},dirty:true};replyDrafts.current.set(scope,snapshot);}
+    if(!snapshot.dirty)return;
+    const value=snapshot,timer=setTimeout(()=>void saveReplyDraft(id,owner,value).catch(error=>{if(updateOwner.current===owner)notify('回复草稿未能保存：'+errorMessage(error),'error');}),500);
+    return()=>clearTimeout(timer);
+  },[activePost?.id,reply,account.id,replyWidthRevision,saveReplyDraft,notify]);
+  useEffect(()=>{
+    if(!activePost||!account.id)return;
+    const id=activePost.id,owner=account.id,epoch=actionEpoch.current,scope=owner+':'+id;
+    return()=>{
+      if(updateOwner.current!==owner||replySubmission.current===epoch)return;
+      let snapshot=replyDrafts.current.get(scope);if(!snapshot)return;
+      const content=latestDrafts.current[id]??snapshot.content;if(content!==snapshot.content){snapshot={...snapshot,content,dirty:true};replyDrafts.current.set(scope,snapshot);}
+      void saveReplyDraft(id,owner,snapshot).catch(error=>{if(updateOwner.current===owner)notify('回复草稿未能保存：'+errorMessage(error),'error');});
+    };
+  },[activePost?.id,account.id,saveReplyDraft,notify]);
+  useEffect(()=>{if(!ready||!appearance.autoRefresh)return;const timer=setInterval(()=>{if(view==='forum'&&!activeId&&!official.visible&&!document.hidden&&!updatePreparingRef.current)void loadListing();},60000);return()=>clearInterval(timer);},[ready,appearance.autoRefresh,view,activeId,official.visible,loadListing]);
   useEffect(()=>ready?window.seekdesk.onOpenPost(post=>openPost(post)):undefined,[ready,openPost]);
-  useEffect(()=>{const onKey=(event:KeyboardEvent)=>{if((event.target as HTMLElement).closest('input,textarea,select,[contenteditable=true]')||view!=='forum'||showSettings||official.visible||searchOpen||mediaOpen)return;if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();setSelectedIndex(index=>{const next=Math.min(filtered.length-1,Math.max(0,index+(event.key==='ArrowDown'?1:-1)));requestAnimationFrame(()=>document.querySelectorAll<HTMLElement>('[data-testid="post-row"]')[next]?.scrollIntoView({block:'nearest'}));return next;});}else if(event.key==='Enter'&&filtered[selectedIndex]){event.preventDefault();openPost(filtered[selectedIndex],event.ctrlKey||event.metaKey);}};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey);},[view,showSettings,official.visible,searchOpen,mediaOpen,filtered,selectedIndex,openPost]);
+  useEffect(()=>{
+    const onKey=(event:KeyboardEvent)=>{
+      const target=event.target as HTMLElement;
+      if(event.defaultPrevented||event.isComposing||event.keyCode===229||updatePreparingRef.current||target.closest('input,textarea,select,[contenteditable=true],button,a,summary,[role=button],[role=tab]')||document.querySelector('[role="dialog"][aria-modal="true"]')||view!=='forum'||showSettings||official.visible||searchOpen||mediaOpen||!filtered.length)return;
+      if((event.key==='ArrowDown'||event.key==='ArrowUp')&&!event.ctrlKey&&!event.metaKey&&!event.altKey){event.preventDefault();setSelectedIndex(index=>{const next=Math.min(filtered.length-1,Math.max(0,index+(event.key==='ArrowDown'?1:-1)));requestAnimationFrame(()=>document.querySelectorAll<HTMLElement>('[data-testid="post-row"]')[next]?.scrollIntoView({block:'nearest'}));return next;});}
+      else if(event.key==='Enter'&&!event.altKey&&filtered[selectedIndex]){event.preventDefault();openPost(filtered[selectedIndex],event.ctrlKey||event.metaKey);}
+    };
+    window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey);
+  },[view,showSettings,official.visible,searchOpen,mediaOpen,filtered,selectedIndex,openPost]);
 
   useUpdateDraftSaver(async()=>{
     if(!ready)throw new Error('客户端尚未就绪');
@@ -543,9 +609,10 @@ export default function App() {
     if(owner&&draftsOwner.current===owner){
       await Promise.all(Object.entries(latestDrafts.current).map(async([id,content])=>{
         const key='reply:'+id;
-        const previous=id===activePost?.id?undefined:await window.seekdesk.loadDraft(key,owner);
+        const snapshot=replyDrafts.current.get(owner+':'+id);
+        if(content.trim()&&!snapshot)throw new Error('回复草稿尚未读取完成，请稍后更新');
         if(epoch!==actionEpoch.current||draftsOwner.current!==owner)throw new Error('草稿所属账号已变化');
-        await window.seekdesk.saveDraft(key,{content,imageWidths:id===activePost?.id?replyWidths.current:previous?.imageWidths||{}},owner);
+        await window.seekdesk.saveDraft(key,{content,imageWidths:snapshot?.imageWidths||{}},owner);
       }));
     }
     if(epoch!==actionEpoch.current)throw new Error('账号已变化');
@@ -553,13 +620,19 @@ export default function App() {
   });
   useEffect(()=>{
     if(!ready||!window.seekdesk.onBeforeUpdateInstall)return;
-    const prepare=window.seekdesk.onBeforeUpdateInstall(async()=>{
-      flushSync(()=>setUpdatePreparing(true));
-      try{await flushUpdateDrafts({owner:updateOwner.current});}
-      catch(error){flushSync(()=>setUpdatePreparing(false));throw error;}
+    const prepare=window.seekdesk.onBeforeUpdateInstall(async(reason='update')=>{
+      const request=++preparationEpoch.current;preparationReasonRef.current=reason;
+      flushSync(()=>{setPreparationReason(reason);setUpdatePreparing(true);});
+      try{await flushUpdateDrafts({owner:updateOwner.current,fresh:true});}
+      catch(error){if(request===preparationEpoch.current){preparationEpoch.current++;preparationReasonRef.current=null;flushSync(()=>setUpdatePreparing(false));}throw error;}
     });
-    const changed=window.seekdesk.onUpdateChange(state=>{if(state.status!=='installing')setUpdatePreparing(false);});
-    return()=>{prepare();changed();};
+    const cancelled=window.seekdesk.onSaveCancelled?.(reason=>{
+      if(preparationReasonRef.current&&preparationReasonRef.current!==reason)return;
+      preparationEpoch.current++;preparationReasonRef.current=null;setUpdatePreparing(false);
+      if(reason==='quit')notify('编辑内容未能保存，已取消退出，请重试。','error');
+    });
+    const changed=window.seekdesk.onUpdateChange(state=>{if(preparationReasonRef.current!=='quit'&&state.status!=='installing'){preparationReasonRef.current=null;setUpdatePreparing(false);}});
+    return()=>{prepare();changed();cancelled?.();};
   },[ready]);
   return <><div inert={updatePreparing||undefined} className={`app-shell brand-${appearance.brand}${appearance.readerGradient?' reader-gradient':''}`} style={{'--reader-font-size':`${settings.fontSize*fontScale}px`,'--list-font-size':`${appearance.listFontSize*fontScale}px`,'--board-font-size':`${appearance.boardFontSize*fontScale}px`,'--ranking-font-size':`${appearance.rankingFontSize*fontScale}px`,'--author-scale':appearance.authorFontSize/100,'--sidebar-width':`${appearance.sidebarWidth}px`,'--list-width':`${appearance.listWidth}px`,'--accent':palettes.find(item=>item.id===appearance.brand)?.color} as CSSProperties}>
     <header className="titlebar">
@@ -583,7 +656,7 @@ export default function App() {
           onToggleList={()=>{setNarrowListHidden(false);setListHidden(!effectiveListHidden);}}
           onSelectTab={id=>leaveOfficial(()=>{setActiveId(id);setShowSettings(false);setView('forum');})}
           onCloseTab={closeTab}
-          onCloseAll={()=>{tabs.forEach(tab=>threadRequests.current.set(tab.id,(threadRequests.current.get(tab.id)||0)+1));setTabs([]);setActiveId(null);setThreads({});}}
+          onCloseAll={closeAllTabs}
           onReorder={(source,destination)=>setTabs(current=>{const target=current.findIndex(item=>item.id===destination),next=current.filter(item=>item.id!==source),moving=current.find(item=>item.id===source);if(moving)next.splice(target,0,moving);return next;})}
           onContextMenu={setPostContext}
           onOpenTabList={id=>{setActiveId(id);navigate('forum');}}
@@ -601,8 +674,8 @@ export default function App() {
               {activeThread?.result?.source==='web'&&Boolean(activeThread.result.nextPage||activeThread.appendLoading||activeThread.appendError||activeThread.appendPaused||(activeThread.streamStartPage&&activeThread.result.page>activeThread.streamStartPage))&&<div ref={nextPageSentinel} className={'thread-auto-load'+(activeThread.appendError?' thread-auto-load-error':'')} aria-label="评论自动翻页" role="status">{activeThread.appendLoading?<><LoaderCircle size={17} className="spin"/>正在加载第 {activeThread.result.nextPage} 页评论…</>:activeThread.appendError?<><span>下一页暂未读到，已读评论已保留。</span><button onClick={()=>void loadNextComments(true)}>重试加载</button><button onClick={()=>void action(()=>window.seekdesk.openOfficial(activeThread.result!.url))}>官方页面验证</button></>:activeThread.appendPaused?<><span>连续两页没有新增可见评论，已暂停自动加载。</span><button onClick={()=>void loadNextComments(true)}>继续加载</button></>:<span>{activeThread.streamStartPage&&activeThread.result.page>activeThread.streamStartPage?'已加载第 '+activeThread.streamStartPage+'–'+activeThread.result.page+' 页 · ':''}{activeThread.result.nextPage?'继续向下滚动，自动加载下一页':'已到最后一页'}</span>}</div>}{activeThread?.result&&hasThreadPagination(activeThread.result)&&<footer className="thread-footer"><ThreadPagination {...activeThread.result} loading={activeThread.loading} onPage={changeThreadPage} label="帖子底部分页"/></footer>}
             </div></div>{!activeThread?.result?.replyRestriction&&<ReplyDock postId={activePost.id} accountId={account.id} accountStatus={account.status} reply={reply} expanded={replyExpanded} focusRequest={replyFocusRequest} restriction={activeThread?.result?.replyRestriction} canInteract={canInteract} actionBusy={actionBusy} composerUploading={composerUploading} sendShortcut={appearance.sendShortcut} stickers={stickers} imageWidths={replyWidths.current}
               onToggle={()=>{setReplyExpanded(!replyExpanded);if(!replyExpanded)setReplyFocusRequest(request=>request+1);}} onClose={()=>setReplyExpanded(false)}
-              onChange={value=>setDrafts(current=>({...current,[activePost.id]:value}))} onClear={()=>setDrafts(current=>({...current,[activePost.id]:''}))} onSend={()=>void sendReply()}
-              onUpload={upload} onImageWidths={value=>{replyWidths.current=value;}} onImportStickers={()=>setMediaOpen(true)} onMediaSettings={()=>setMediaOpen(true)}
+              onChange={editReply} onClear={()=>{editReply('');editReplyWidths({});}} draftError={replyDraftError} onRetryDraft={()=>setReplyDraftRetry(value=>value+1)} onSend={()=>void sendReply()}
+              onUpload={upload} onImageWidths={editReplyWidths} onImportStickers={()=>setMediaOpen(true)} onMediaSettings={()=>setMediaOpen(true)}
               onOpenOfficial={()=>void action(()=>window.seekdesk.openOfficial(account.status==='signed-in'?activePost.url:undefined))}
             />}</>:overviewOpen?<div data-testid="reading-overview" className="overview real-overview"><header><img src="./assets/app-icon.png" alt=""/><h1>阅读总览</h1><IconButton label="关闭阅读总览" onClick={closeOverview}><X size={18}/></IconButton></header><p>{tabs.length?`已打开 ${tabs.length} 篇帖子，选择标签继续阅读。`:'从帖子列表打开讨论，保留多个标签同时阅读。'}</p><div className="overview-topics">{tabs.map(post=><button key={post.id} className="activity-row" onClick={()=>openPost(post)}><FileText size={18}/><span><strong>{post.title}</strong><small>{post.author} · {boardName(post.category)}</small></span><ArrowRight size={17}/></button>)}</div><div className="overview-shortcuts"><span><kbd>Ctrl K</kbd>搜索帖子和用户</span><span><kbd>Ctrl Tab</kbd>切换阅读标签</span><span><kbd>Ctrl W</kbd>关闭当前标签</span></div><button className="primary-button" onClick={()=>{setEditSource(undefined);navigate('compose');}}><Plus size={18}/>发表新帖</button></div>:<div className="reader-empty"><BookOpen size={34}/><h1>选择帖子开始阅读</h1><button className="secondary-button" onClick={()=>setOverviewOpen(true)}>打开阅读总览</button></div>}</main>
           </>}
@@ -620,7 +693,7 @@ export default function App() {
     {keywordAlerts.length>0&&!official.visible&&<aside className="keyword-alerts" aria-label="关键词监控提醒"><header><strong>关键词监控 · {keywordAlerts.length} 条新命中</strong><IconButton label="关闭关键词提醒" onClick={()=>setKeywordAlerts([])}><X size={17}/></IconButton></header><div>{keywordAlerts.map(hit=><button className="activity-row" key={`${hit.post.id}:${hit.date}`} onClick={()=>{openPost(hit.post);setKeywordAlerts([]);}}><Bell size={18}/><span><strong>{hit.post.title}</strong><small>{hit.words.join(" · ")}</small></span><ArrowRight size={17}/></button>)}</div></aside>}
     {mediaOpen&&!official.visible&&<ComposerMediaPanel onClose={()=>setMediaOpen(false)} onChanged={mediaChanged}/>}
     {bossMode&&<div className="office-surface"><header><strong>{extensions.officeTitle||'工作台'}</strong><button className="secondary-button" onClick={()=>void action(()=>window.seekdesk.toggleBossKey())}>{extensions.officeButton||'返回'}</button></header><nav>文件　编辑　查看　插入　格式　工具　帮助</nav><div className="office-document"><h1>项目工作计划</h1><p>工作进展记录与任务安排</p><table><thead><tr><th>事项</th><th>负责人</th><th>开始日期</th><th>截止日期</th><th>状态</th><th>备注</th></tr></thead><tbody>{Array.from({length:24},(_,index)=><tr key={index}><td>{index+1}</td><td contentEditable suppressContentEditableWarning/><td contentEditable suppressContentEditableWarning/><td contentEditable suppressContentEditableWarning/><td contentEditable suppressContentEditableWarning/><td contentEditable suppressContentEditableWarning/></tr>)}</tbody></table></div></div>}
-  </div>{updatePreparing&&<div className="update-install-overlay" role="alertdialog" aria-modal="true" aria-labelledby="update-install-title" tabIndex={-1} ref={node=>node?.focus()}><section><h2 id="update-install-title">正在准备更新</h2><p>正在保存编辑内容，随后后台替换程序文件并重新打开应用，请稍候…</p><progress aria-label="正在准备重启更新"/></section></div>}</>;
+  </div>{updatePreparing&&<div className="update-install-overlay" role="alertdialog" aria-modal="true" aria-labelledby="update-install-title" tabIndex={-1} ref={node=>node?.focus()}><section><h2 id="update-install-title">{preparationReason==='quit'?'正在保存并退出':'正在准备更新'}</h2><p>{preparationReason==='quit'?'正在保存编辑内容和阅读位置，完成后退出应用。':'正在保存编辑内容，随后后台替换程序文件并重新打开应用，请稍候…'}</p><progress aria-label={preparationReason==='quit'?'正在保存并退出':'正在准备重启更新'}/></section></div>}</>;
 }
 
 function OfficialPanel({state,scriptEnabled,onScriptSettings,onClose,onReload}:{state:OfficialViewState;scriptEnabled:boolean;onScriptSettings:()=>void;onClose:()=>void;onReload:()=>void}) {

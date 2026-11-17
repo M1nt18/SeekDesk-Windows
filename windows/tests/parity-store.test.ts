@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {ParityStore,appearanceDefaults,validateAppearance,validateDraft,validateHistory} from '../electron/parity-store';
+import {ExtensionsService} from '../electron/extensions';
 
 async function temporary(run:(directory:string)=>Promise<void>){const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-parity-'));try{await run(directory);}finally{await fs.rm(directory,{recursive:true,force:true});}}
 test('drafts survive restart and remain isolated by confirmed account owner',async()=>temporary(async directory=>{
@@ -101,3 +102,48 @@ test('private-message drafts retain an explicit plain-text flag',()=>{
   assert.equal(validateDraft({content:'**bold**',markdown:true})?.markdown,true);
   assert.throws(()=>validateDraft({content:'text',markdown:'false'}),/格式/);
 });
+
+test('appearance commits stay inactive on failure and queued draft saves use confirmed appearance',async()=>{
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-appearance-commit-'));
+  let fail=false;
+  const io={...fs,rename:async(...args:Parameters<typeof fs.rename>)=>{if(fail){fail=false;throw Error('synthetic appearance failure');}return fs.rename(...args);}};
+  try{
+    const store=new ParityStore(directory,io);await store.save();fail=true;
+    const rejected=assert.rejects(store.commitAppearance({...appearanceDefaults,brand:'red'}),/synthetic/);
+    const draft=store.saveDraft(1,'reply:1',{content:'safe draft'});await rejected;await draft;
+    assert.equal(store.appearance.brand,'blue');
+    const saved=JSON.parse(await fs.readFile(path.join(directory,'workspace-features.json'),'utf8'));
+    assert.equal(saved.appearance.brand,'blue');assert.equal(saved.drafts['1']['reply:1'].content,'safe draft');
+    const commit=store.commitAppearance({...appearanceDefaults,brand:'green'}),queued=store.save();await commit;await queued;
+    assert.equal(store.appearance.brand,'green');assert.equal(JSON.parse(await fs.readFile(path.join(directory,'workspace-features.json'),'utf8')).appearance.brand,'green');
+  }finally{await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('extension persistence failure leaves confirmed config available to later generic saves',async()=>{
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-extension-commit-'));
+  let fail=false;
+  const io={...fs,rename:async(...args:Parameters<typeof fs.rename>)=>{if(fail){fail=false;throw Error('synthetic extension failure');}return fs.rename(...args);}};
+  try{
+    const store=new ParityStore(directory,io);await store.save();fail=true;
+    const next={...store.extensions,installed:[...store.extensions.installed,'office' as const],enabled:[...store.extensions.enabled,'office' as const]};
+    const rejected=assert.rejects(store.commitExtensions(next),/synthetic/),queued=store.save();await rejected;await queued;
+    assert.equal(store.extensions.enabled.includes('office'),false);
+    assert.equal(JSON.parse(await fs.readFile(path.join(directory,'workspace-features.json'),'utf8')).extensions.enabled.includes('office'),false);
+  }finally{await fs.rm(directory,{recursive:true,force:true});}
+});
+
+test('poller writes queued during a configuration commit preserve both new configuration and fresh hits',async()=>temporary(async directory=>{
+  let block=false,entered!:()=>void,release!:()=>void;
+  const writing=new Promise<void>(resolve=>{entered=resolve;}),gate=new Promise<void>(resolve=>{release=resolve;});
+  const io={...fs,rename:async(...args:Parameters<typeof fs.rename>)=>{if(block){block=false;entered();await gate;}return fs.rename(...args);}};
+  const store=new ParityStore(directory,io);store.extensions.installed.push('keywords');store.extensions.enabled.push('keywords');store.extensions.watchWords='VPS';await store.save();
+  const service=new ExtensionsService(store.extensions,{fetchPublic:async()=>new Response('<rss><channel><title>NodeSeek</title><item><title>VPS fixture</title><link>https://www.nodeseek.com/post-501-1</link><author>Fixture</author></item></channel></rss>'),onChange:(state,persisted)=>{store.extensions=state;if(!persisted)void store.save();}});
+  try{
+    block=true;const next=service.getState();next.installed.push('office');next.enabled.push('office');
+    const committed=service.commitUpdate(next,value=>store.commitExtensions(value));await writing;
+    await service.pollKeywords();assert.equal(service.getState().hits[0].post.id,'501');
+    release();await committed;await store.save();
+    const saved=JSON.parse(await fs.readFile(path.join(directory,'workspace-features.json'),'utf8'));
+    assert.equal(saved.extensions.enabled.includes('office'),true);assert.equal(saved.extensions.hits[0].post.id,'501');assert.equal(saved.extensions.unread,1);
+  }finally{release();service.dispose();}
+}));

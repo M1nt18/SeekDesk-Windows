@@ -44,6 +44,31 @@ test('RSS monitor honors Retry-After and does not publish stale pending results 
   await rateLimited.pollKeywords();assert.ok([...clock.pending.values()].some(timer=>timer.ms===90000));rateLimited.dispose();
   assert.equal(retryAfter('Wed, 11 Nov 2026 00:02:00 GMT',now),120000);
 });
+
+test('failed configuration commits do not enable tasks or boss key and a retry emits only after persistence',async()=>{
+  const clock=timers(),boss:boolean[]=[],changes:boolean[]=[];
+  const service=new ExtensionsService(undefined,{...clock,onBossKey:active=>boss.push(active),onChange:(_state,persisted)=>changes.push(persisted===true)});
+  try{
+    boss.length=0;const next=service.getState();next.installed.push('office','attendance');next.enabled.push('office','attendance');next.autoAttendance=true;
+    await assert.rejects(service.commitUpdate(next,async()=>{throw Error('synthetic config failure');}),/synthetic/);
+    assert.equal(service.getState().enabled.includes('office'),false);assert.equal(clock.pending.size,0);assert.deepEqual(boss,[]);assert.deepEqual(changes,[]);
+    let writes=0;await service.commitUpdate(next,async()=>{writes++;assert.equal(service.getState().enabled.includes('office'),false);});
+    assert.equal(writes,1);assert.deepEqual(boss,[true]);assert.deepEqual(changes,[true]);assert.equal(clock.pending.size,1);
+  }finally{service.dispose();}
+});
+
+test('a pending configuration commit preserves later poller hits and unread increments',async()=>{
+  const clock=timers(),state=defaultExtensions();state.installed.push('keywords');state.enabled.push('keywords');state.watchWords='VPS';
+  let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
+  const service=new ExtensionsService(state,{...clock,now:()=>now,fetchPublic:async()=>new Response(rss(['501']))});
+  try{
+    const next=service.getState();next.installed.push('office');next.enabled.push('office');next.unread=0;
+    const committed=service.commitUpdate(next,async()=>gate);await Promise.resolve();
+    await service.pollKeywords();assert.equal(service.getState().hits[0].post.id,'501');assert.equal(service.getState().unread,1);
+    release();await committed;
+    assert.equal(service.getState().enabled.includes('office'),true);assert.equal(service.getState().hits[0].post.id,'501');assert.equal(service.getState().unread,1);
+  }finally{release();service.dispose();}
+});
 test('ranking requests deduplicate, preserve original position, filter blocked users and keep stale data on failure',async()=>{
   const state=enabledState(['block']);state.blocked=[{name:'blocked'}];let at=now,calls=0;
   const service=new ExtensionsService(state,{now:()=>at,fetchPublic:async url=>{calls++;assert.match(url,/\/hot\.json$/);if(calls>1)throw new Error('offline');return json({posts:[{post:{id:1,title:'First',author:'blocked'}},{post:{id:2,title:'Second',author:'Alice'},score:42},{post:{id:2,title:'duplicate'}}]});}});

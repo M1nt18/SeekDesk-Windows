@@ -53,9 +53,9 @@ function threadFor(item: Post, page = 1): ThreadResult {
 }
 
 export function installPreviewBridge() {
-  const updateState = { status: 'unsupported' as const, currentVersion: '0.1.2-preview', installable: false, manualOnly: true };
+  const updateState = { status: 'unsupported' as const, currentVersion: '0.1.3-preview', installable: false, manualOnly: true };
   const api: SeekDeskAPI = {
-    bootstrap: async () => ({ account, settings, workspace: { tabs: [posts[0]], activeId: posts[0].id, overviewOpen: true, listHidden: false, scrollPositions: {} }, official: { visible: false, url: '', loading: false, purpose: 'login' }, blockedUsers: [], version: '0.1.2', buildNumber: '预览版' }),
+    bootstrap: async () => ({ account, settings, workspace: { tabs: [posts[0]], activeId: posts[0].id, overviewOpen: true, listHidden: false, scrollPositions: {} }, official: { visible: false, url: '', loading: false, purpose: 'login' }, blockedUsers: [], version: '0.1.3', buildNumber: '预览版' }),
     parityBootstrap: async () => ({ extensions, appearance, media: { hasApiKey: false, defaultImageWidth: 0 }, stickers: [], searchHistory: [] }),
     listPosts: async request => ({ posts: posts.filter(item => !request.category || item.category === request.category), source: 'web', fetchedAt: new Date().toISOString(), nextPage: null, notice: '本地预览数据 · 操作不会影响真实账号' }),
     readThread: async (item, page) => threadFor(item, page),

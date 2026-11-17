@@ -34,6 +34,7 @@ export function TabBar({tabs,activeId,fullPage,overviewOpen,effectiveListHidden,
       </div>}
       {tabs.map(tab=><div key={tab.id} draggable
         onDragStart={event=>{draggedTab.current=tab.id;event.dataTransfer.effectAllowed='move';}}
+        onDragEnd={()=>{draggedTab.current=null;}}
         onDragOver={event=>event.preventDefault()}
         onDrop={event=>{event.preventDefault();const source=draggedTab.current;if(source&&source!==tab.id)onReorder(source,tab.id);draggedTab.current=null;}}
         data-tab-id={tab.id}

@@ -381,14 +381,14 @@ kbd { font-family: inherit; font-size: max(12px, .75rem); color: var(--muted); b
 [data-category=""] { --category-ink: var(--link-blue); }
 
 .sidebar .board-link[data-category] {
-  color: var(--secondary);
-  background: transparent;
+  color: var(--category-ink);
+  background: color-mix(in srgb, var(--category-ink) 7%, transparent);
   font-weight: 500;
 }
-.sidebar .board-link[data-category]:hover { background: var(--hover);color:var(--text); }
+.sidebar .board-link[data-category]:hover { background:color-mix(in srgb,var(--category-ink) 13%,transparent);color:var(--category-ink); }
 .sidebar .board-link[data-category].selected {
-  color: var(--accent-text);
-  background: var(--accent-soft);
+  color: var(--category-ink);
+  background: color-mix(in srgb,var(--category-ink) 17%,transparent);
   font-weight: 600;
 }
 .sidebar .board-link > svg:first-child { display:block;color:var(--category-ink,var(--muted));flex-shrink:0; }
@@ -503,7 +503,7 @@ kbd { font-family: inherit; font-size: max(12px, .75rem); color: var(--muted); b
   padding:4px 10px 4px 5px;
   border:1px solid transparent;
   border-radius:var(--radius-md);
-  background:transparent;
+  background:var(--account-background);
   box-shadow:none;
 }
 .toolbar-account:hover { background:var(--hover); }
@@ -599,3 +599,8 @@ kbd { font-family: inherit; font-size: max(12px, .75rem); color: var(--muted); b
 
 /* Quiet scrollbars keep long lists and reading areas calm. */
 *:where(.sidebar-scroll,.list-scroll,.reader-scroll,.settings-scroll,.page-scroll) { scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent; }
+
+/* Keep the requested category chip before the title and preserve board colours. */
+.post-row h2>.category-tag{display:inline-flex;vertical-align:middle;margin:0 6px 2px 0;color:var(--category-ink);background:color-mix(in srgb,var(--category-ink) 13%,transparent);font-size:max(12px,.72em);line-height:1.4;white-space:nowrap;}
+
+.sidebar .board-link[data-category].selected>svg:first-child{color:var(--category-ink);}

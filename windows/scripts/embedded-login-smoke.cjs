@@ -1,3 +1,4 @@
+const {waitForAsync}=require('./smoke-wait.cjs');
 const {_electron}=require('playwright-core');
 const fs=require('node:fs/promises');
 const path=require('node:path');
@@ -138,7 +139,7 @@ function fixture(signedIn,url) {
   await page.getByTestId('official-panel').waitFor();
   await nativeClick('.post-title a');
   await page.getByTestId('official-panel').waitFor({state:'hidden'});
-  await page.waitForTimeout(350);
+  await waitForAsync(page,async()=>((await window.seekdesk.bootstrap()).workspace.tabs).some(post=>post.id==='424201'));
   assert.ok((await page.evaluate(()=>window.seekdesk.bootstrap())).workspace.tabs.some(post=>post.id==='424201'));
   assert.equal((await viewDetails()).visibleWindows,1);
   check('Posts clicked in official shortcuts return to native reading tabs');

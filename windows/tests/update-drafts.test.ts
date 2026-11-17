@@ -50,6 +50,27 @@ test('concurrent update requests wait for one shared round of all local draft wr
   });
 });
 
+test('a fresh native retry waits for an older pending round and then saves the latest callback',async()=>{
+  await mountedSavers(async render=>{
+    const entered=deferred(),gate=deferred(),saved:string[]=[];
+    await render([async()=>{saved.push('before canceled exit');entered.resolve();await gate.promise;}]);
+    const first=flushUpdateDrafts({owner:7});await entered.promise;
+    await render([async()=>{saved.push('last text typed after cancellation');}]);
+    const retry=flushUpdateDrafts({owner:7,fresh:true});assert.notEqual(first,retry);assert.deepEqual(saved,['before canceled exit']);
+    gate.resolve();await Promise.all([first,retry]);assert.deepEqual(saved,['before canceled exit','last text typed after cancellation']);
+  },{owner:7});
+});
+test('a fresh retry also saves the new callback after the canceled older write finally rejects',async()=>{
+  await mountedSavers(async render=>{
+    const entered=deferred(),gate=deferred(),saved:string[]=[];
+    await render([async()=>{saved.push('old');entered.resolve();await gate.promise;}]);
+    const first=flushUpdateDrafts({owner:7}),failed=assert.rejects(first,/部分草稿/);await entered.promise;
+    await render([async()=>{saved.push('new');}]);
+    const retry=flushUpdateDrafts({owner:7,fresh:true});gate.reject(new Error('late old disk failure'));
+    await Promise.all([failed,retry]);assert.deepEqual(saved,['old','new']);
+  },{owner:7});
+});
+
 test('a failing draft blocks installation, waits for other saves, and allows an explicit retry',async()=>{
   await mountedSavers(async render=>{
     const gate=deferred();let fail=true,finished=false,calls=0;
