@@ -35,6 +35,13 @@ let app;
  assert.ok(narrow.x>=-1 && narrow.x+narrow.width<=narrow.viewportWidth+1,JSON.stringify(narrow));state.narrowDialog=narrow;
  const stored=JSON.parse(await fs.readFile(path.join(env.SEEKDESK_USER_DATA,'gm/nodeseek-pro.json'),'utf8'));
  assert.equal(stored.settings.sign_in.ns.enabled,false);state.gmStoragePersisted=true;
+ await app.evaluate(async()=>{
+   const test=globalThis.userscriptTest;
+   await test.contents.executeJavaScriptInIsolatedWorld(test.world,[{code:`window.__seekdeskGM.set('credentialProbe',{api_key:'synthetic-secret-not-a-real-key',ordinary:'kept'})`}]);
+ });
+ const protectedFile=await fs.readFile(path.join(env.SEEKDESK_USER_DATA,'gm/nodeseek-pro.json'),'utf8'),credential=JSON.parse(protectedFile).credentialProbe;
+ const protection=await app.evaluate(({safeStorage},{credential,encrypted})=>({available:safeStorage.isEncryptionAvailable(),encrypted,roundTrip:safeStorage.decryptString(Buffer.from(credential.api_key.data,'base64'))==='synthetic-secret-not-a-real-key',ordinary:credential.ordinary}),{credential,encrypted:!protectedFile.includes('synthetic-secret-not-a-real-key')});
+ assert.deepEqual(protection,{available:true,encrypted:true,roundTrip:true,ordinary:'kept'});state.credentialProtection=protection;
  await fs.writeFile(path.join(root,'verification/nodeseek-pro-settings.png'),Buffer.from(state.image,'base64'));delete state.image;
  await fs.writeFile(path.join(root,'verification/nodeseek-pro-electron.json'),JSON.stringify({status:'pass',scope:'Real Electron with isolated mock HTTPS responses; no live forum writes',...state},null,2));
  console.log('PASS real Electron: NodeSeek Pro isolated world, menu, original settings, and attendance disabled');

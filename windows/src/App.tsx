@@ -210,6 +210,7 @@ export default function App() {
       if(!window.seekdesk)throw new Error('桌面连接未建立，请从调试启动器打开客户端。');
       const data=await window.seekdesk.bootstrap();
       setSettings(data.settings);setAccount(data.account);setVersion(data.version);setBuildNumber(data.buildNumber);setOfficial(data.official);setBlockedUsers(data.blockedUsers||[]);
+      if(data.storageWarning)notify(data.storageWarning,'error');
       confirmedIdentity.current=data.account.status==='signed-in'?String(data.account.id||data.account.name):data.account.status==='signed-out'?'signed-out':null;
       if(data.settings.restoreTabs){scrollPositions.current=new Map(Object.entries(data.workspace.scrollPositions||{}));restoredAnchors.current=new Map(Object.entries(data.workspace.readingAnchors||{}));setTabs(restoredWorkspace(data.workspace).tabs);setActiveId(data.workspace.activeId);setOverviewOpen(data.workspace.overviewOpen!==false);}
       setListHidden(data.workspace.listHidden===true);

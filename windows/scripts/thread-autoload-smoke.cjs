@@ -36,9 +36,13 @@ async function screenshot(name){await page.screenshot({path:path.join(output,nam
   await fs.mkdir(output,{recursive:true});
   const env={...process.env,SEEKDESK_TEST:'1',SEEKDESK_USER_DATA:path.join(project,'.test-data','thread-autoload-'+Date.now())};
   delete env.ELECTRON_RUN_AS_NODE;delete env.SEEKDESK_DEV_URL;
-  app=await electron.launch({executablePath:require('electron'),args:[project,'--host-resolver-rules=MAP * ~NOTFOUND'],env});
+  await fs.mkdir(env.SEEKDESK_USER_DATA,{recursive:true});
+  const entry=path.join(env.SEEKDESK_USER_DATA,'entry.cjs');
+  await fs.writeFile(entry,`const {app,session}=require('electron');app.whenReady().then(()=>{for(const partition of ['persist:nodeseek','public-rss'])session.fromPartition(partition).protocol.handle('https',()=>new Response('Synthetic frontend fixture',{status:503}));});globalThis.fetch=async()=>{throw Error('No live requests in frontend fixture');};require(${JSON.stringify(path.join(project,'dist-electron/electron/main.js'))});`);
+  app=await electron.launch({executablePath:require('electron'),args:[entry,'--host-resolver-rules=MAP * ~NOTFOUND'],env});
   page=await app.firstWindow();page.on('pageerror',error=>report.errors.push(error.message));
   await page.locator('.workspace').waitFor();
+  await page.evaluate(()=>window.seekdesk.listPosts({}).catch(()=>null));
   await app.evaluate(({ipcMain,BrowserWindow},{titles,version})=>{
     const state=global.__autoload={owner:42,reads:[],pending:[],holds:new Set(['101:2:42','101:3:42']),failures:{},writes:[],clipboard:[],workspace:{tabs:[],activeId:null,overviewOpen:true},workspaceWrites:[],bootstraps:[],drafts:{}};
     const location=(id,number)=>'https://www.nodeseek.com/post-'+id+'-'+number;
@@ -59,6 +63,7 @@ async function screenshot(name){await page.screenshot({path:path.join(output,nam
     const mock=(channel,handler)=>{ipcMain.removeHandler(channel);ipcMain.handle(channel,handler);};
     mock('app:bootstrap',()=>{state.bootstraps.push({tabs:state.workspace.tabs.map(tab=>({id:tab.id,url:tab.url})),activeId:state.workspace.activeId,at:Date.now()});return {settings,workspace:state.workspace,account:owner(),official:{visible:false,url:'',loading:false,purpose:'login'},blockedUsers:[],version};});
     mock('parity:bootstrap',()=>({appearance,extensions,stickers:[],searchHistory:[],media:{hasApiKey:false,defaultImageWidth:0}}));
+    mock('forum:account',()=>owner());
     mock('forum:list',()=>({posts,nextPage:null,source:'web',fetchedAt:new Date().toISOString()}));
     mock('forum:thread',(_event,post,number=1)=>{
       const snapshotOwner=state.owner,key=post.id+':'+number+':'+snapshotOwner,result=thread(post,number,snapshotOwner);

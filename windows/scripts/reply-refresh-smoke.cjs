@@ -4,7 +4,7 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const assert=require('node:assert/strict');
 const project=path.resolve(__dirname,'..'),profile=path.join(project,'.test-data','reply-refresh-'+Date.now()),output=path.join(project,'verification');
-const report={testedAt:new Date().toISOString(),scope:'Real Electron renderer/main/preload with isolated userData. All forum requests are local HTTPS protocol fixtures; no real forum mutation. Cache assertions verify executed CDP cache disabling and fresh document reads, not a live CDN.',checks:[],errors:[]};
+const report={testedAt:new Date().toISOString(),scope:'Real Electron renderer/main/preload with isolated userData. All forum requests are local HTTPS protocol fixtures; no real forum mutation. Cache assertions verify fresh document navigation/headers while permitting asset caching, not a live CDN.',checks:[],errors:[]};
 let app,page;
 const check=(name,detail)=>{report.checks.push({name,status:'pass',detail});console.log('PASS',name,detail||'');};
 function installFixture(fixture){
@@ -29,7 +29,9 @@ function installFixture(fixture){
       content=root+'<div class="comments">'+body+'</div><nav class="pagination">'+(page<3?'<a rel="next" href="/post-123-'+(page+1)+'">下一页</a>':'')+'</nav>';
     }
     const config={user:{member_id:42,member_name:'当前账号',rank:4},commmentPerPage:10,postData:{postId:123,title:'回复分页回归主题',comments}};
-    return '<!doctype html><meta charset="utf-8"><title>回复分页回归</title><script>window.__config__='+JSON.stringify(config)+'</script><div id="nsk-head"></div><div id="nsk-body-left">'+content+'</div>';
+    // Keep the initial next-page sentinel below the viewport. This test covers
+    // reply destinations; automatic short-page loading has its own regression.
+    return '<!doctype html><meta charset="utf-8"><title>回复分页回归</title><style>.post-content{min-height:480px}</style><script>window.__config__='+JSON.stringify(config)+'</script><div id="nsk-head"></div><div id="nsk-body-left">'+content+'</div>';
   }
   async function route(request){
     const url=new URL(request.url);
@@ -79,9 +81,10 @@ function installFixture(fixture){
   assert.match(direct.comments.find(row=>row.id==='25').html,/revision 2/);
   const afterDirect=await app.evaluate(()=>globalThis.__replyFixture);
   assert.ok(afterDirect.documents.filter(row=>new URL(row.url).pathname==='/post-123-3').length>beforeDirect);
-  assert.ok(afterDirect.commands.some(row=>row.method==='Network.enable'&&row.success));
-  assert.ok(afterDirect.commands.some(row=>row.method==='Network.setCacheDisabled'&&row.params?.cacheDisabled===true&&row.success));
-  check('Hidden reader executes CDP cache disabling and a changed hash performs a fresh document read',{freshReads:afterDirect.documents.filter(row=>new URL(row.url).pathname==='/post-123-3').length-beforeDirect,cacheDisabled:true});
+  assert.ok(!afterDirect.commands.some(row=>row.method==='Network.setCacheDisabled'&&row.params?.cacheDisabled===true&&row.success));
+  const documents=afterDirect.documents.filter(row=>new URL(row.url).pathname==='/post-123-3');
+  assert.ok(documents.every(row=>/no-cache/.test(row.cacheControl)&&/no-cache/.test(row.pragma)));
+  check('A changed hash performs a fresh document read with revalidation while assets remain cacheable',{freshReads:documents.length-beforeDirect,assetCacheEnabled:true});
 
   await app.evaluate(()=>{globalThis.__replyFixture.revision=3;});
   await page.getByRole('button',{name:'刷新当前帖子',exact:true}).click();

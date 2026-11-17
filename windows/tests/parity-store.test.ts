@@ -7,6 +7,24 @@ import {ParityStore,appearanceDefaults,validateAppearance,validateDraft,validate
 import {ExtensionsService} from '../electron/extensions';
 
 async function temporary(run:(directory:string)=>Promise<void>){const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-parity-'));try{await run(directory);}finally{await fs.rm(directory,{recursive:true,force:true});}}
+test('corrupt, truncated and invalid root files remain byte-identical after every attempted save',async()=>temporary(async directory=>{
+  const target=path.join(directory,'workspace-features.json');
+  for(const contents of ['{"drafts":','not json','null','[]']){
+    await fs.writeFile(target,contents);const store=new ParityStore(directory);await store.load();
+    assert.match(store.storageWarning||'',/原文件已保留/);
+    assert.throws(()=>store.loadDraft(42,'reply:123'),/无法读取/);
+    assert.throws(()=>store.readConversationContacts(42),/无法读取/);
+    for(const save of [()=>store.save(),()=>store.saveDraft(42,'reply:123',{content:'new text'}),()=>store.commitAppearance(appearanceDefaults),()=>store.commitExtensions(store.extensions),()=>store.rememberConversationContact(42,{id:77,name:'friend'})])await assert.rejects(save,/无法读取/);
+    assert.equal(await fs.readFile(target,'utf8'),contents);
+  }
+}));
+test('an access failure is not treated as a first launch and cannot overwrite readable disk data',async()=>temporary(async directory=>{
+  const target=path.join(directory,'workspace-features.json'),contents='{"drafts":{"42":{"reply:1":{"content":"original"}}}}';
+  await fs.writeFile(target,contents);
+  const store=new ParityStore(directory,{...fs,readFile:async()=>{throw Object.assign(Error('synthetic denied'),{code:'EACCES'});}} as typeof fs);
+  await store.load();await assert.rejects(store.save(),/原文件已保留/);assert.equal(await fs.readFile(target,'utf8'),contents);
+  const recovered=new ParityStore(directory);await recovered.load();assert.equal(recovered.storageWarning,undefined);assert.equal(recovered.loadDraft(42,'reply:1')?.content,'original');
+}));
 test('drafts survive restart and remain isolated by confirmed account owner',async()=>temporary(async directory=>{
   const store=new ParityStore(directory);await store.load();
   await store.saveDraft(101,'reply:42',{content:'账号 A 的回复',imageWidths:{'https://example.com/a.png':640}});

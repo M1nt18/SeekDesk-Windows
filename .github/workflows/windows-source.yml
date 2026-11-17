@@ -35,3 +35,7 @@ jobs:
         run: npm run build
       - name: Workspace interaction and failure regressions
         run: npm run test:audit
+      - name: Reader latency and resource regressions
+        run: npm run test:reading-performance && npm run test:reply-refresh && node scripts/thread-autoload-smoke.cjs
+      - name: Isolated Pro runtime and Windows credential protection
+        run: node tests/userscript-electron-run.cjs

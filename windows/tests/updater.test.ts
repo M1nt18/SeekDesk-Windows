@@ -8,6 +8,11 @@ import {EventEmitter} from 'node:events';
 import {UpdaterService,UPDATE_CACHE_NAME,UPDATE_RELEASE_API,UPDATE_REPOSITORY,compareUpdateVersions,createIsolatedNativeUpdater,type NativeUpdater,type UpdaterOptions,type VerifiedDownload} from '../electron/updater';
 
 const payload=Buffer.from('an inert test fixture, never an executable');
+async function keepAliveUntil<T>(promise:Promise<T>,label:string):Promise<T>{
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  try{return await Promise.race([promise,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error('Timed out: '+label)),3000);})]);}
+  finally{clearTimeout(timer);}
+}
 const hash=createHash('sha512').update(payload).digest('base64');
 const fileName='SeekDesk-Windows-0.2.0-x64-Setup.exe';
 const info={version:'0.2.0',files:[{url:fileName,sha512:hash,size:payload.length}]};
@@ -301,7 +306,7 @@ test('a legitimate redirected userData parent supports downloads without permitt
 test('startup checks automatically without downloading or installing',async()=>{
   let checked!:()=>void;const complete=new Promise<void>(resolve=>checked=resolve);
   const f=await fixture({automaticCheckDelayMs:1,onChange:state=>{if(state.status==='available')checked();}});
-  try{await complete;assert.equal(f.native.checks,1);assert.equal(f.native.downloads,0);assert.equal(f.native.installCalls.length,0);}finally{await f.close();}
+  try{await keepAliveUntil(complete,'automatic update check');assert.equal(f.native.checks,1);assert.equal(f.native.downloads,0);assert.equal(f.native.installCalls.length,0);}finally{await f.close();}
 });
 
 test('disposing the service never installs on quit or accepts later install requests',async()=>{

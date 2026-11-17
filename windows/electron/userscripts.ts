@@ -70,6 +70,16 @@ export interface UserscriptHostOptions {
   onOpen:(url:string)=>Promise<void>;
   isEnabled?:()=>boolean;
   vendorDirectory?:string;
+  storageProtection?:{isEncryptionAvailable:()=>boolean;encryptString:(value:string)=>Buffer;decryptString:(value:Buffer)=>string};
+  fileSystem?:Pick<typeof fs,'readFile'|'writeFile'|'mkdir'|'rename'|'unlink'>;
+}
+
+const credentialName=/^(?:api[_-]?key|access[_-]?token|refresh[_-]?token|auth(?:orization|[_-]?token)|password|client[_-]?secret)$/i;
+function mapCredentials(value:unknown,convert:(value:unknown)=>unknown,key=''):unknown {
+  if(credentialName.test(key))return convert(value);
+  if(Array.isArray(value))return value.map(item=>mapCredentials(item,convert));
+  if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([name,item])=>[name,mapCredentials(item,convert,name)]));
+  return value;
 }
 
 export class UserscriptHost {
@@ -77,18 +87,54 @@ export class UserscriptHost {
   private queue:Promise<unknown>=Promise.resolve();
   private assets:Record<string,string>|undefined;
   private readonly vendor:string;
-  constructor(private options:UserscriptHostOptions) {this.vendor=options.vendorDirectory || path.resolve(__dirname,'../../vendor/nodeseek-pro');}
+  private problem:string|undefined;
+  private readonly io:NonNullable<UserscriptHostOptions['fileSystem']>;
+  get storageWarning(){return this.problem;}
+  private assertHealthy(){if(this.problem)throw Error(this.problem);}
+  constructor(private options:UserscriptHostOptions) {this.vendor=options.vendorDirectory || path.resolve(__dirname,'../../vendor/nodeseek-pro');this.io=options.fileSystem||fs;}
   async load() {
-    try {this.values=initialUserscriptValues(JSON.parse(await fs.readFile(path.join(this.options.storageDirectory,'nodeseek-pro.json'),'utf8')));} catch {this.values=initialUserscriptValues({});}
+    let read=false;
+    try {
+      const stored=JSON.parse(await this.io.readFile(path.join(this.options.storageDirectory,'nodeseek-pro.json'),'utf8'));
+      read=true;
+      if(!stored||typeof stored!=='object'||Array.isArray(stored))throw Error('invalid script storage');
+      let migrate=false;
+      const decoded=mapCredentials(stored,value=>{
+        if(typeof value==='string'){if(value)migrate=true;return value;}
+        if(value&&typeof value==='object'&&(value as {protected?:unknown}).protected==='seekdesk-dpapi-v1'){
+          const data=(value as {data?:unknown}).data,protection=this.options.storageProtection;
+          if(!protection?.isEncryptionAvailable()||typeof data!=='string'||!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data))throw Error('credentials unavailable');
+          return protection.decryptString(Buffer.from(data,'base64'));
+        }
+        return value;
+      });
+      const next=initialUserscriptValues(decoded);
+      if(migrate)await this.persist(next);
+      this.values=next;this.problem=undefined;
+    } catch(error) {
+      if(!read&&(error as NodeJS.ErrnoException).code==='ENOENT')return;
+      this.problem='NodeSeek Pro 配置或加密凭据无法读取，原文件已保留；请修复后重新启动应用';
+    }
   }
-  private save() {
-    const data=JSON.stringify(this.values);
-    this.queue=this.queue.catch(()=>{}).then(async()=>{
-      await fs.mkdir(this.options.storageDirectory,{recursive:true});
-      const target=path.join(this.options.storageDirectory,'nodeseek-pro.json');
-      await fs.writeFile(target+'.tmp',data,'utf8');await fs.rename(target+'.tmp',target);
+  private async persist(next:Stored) {
+    this.assertHealthy();
+    const encoded=mapCredentials(next,value=>{
+      if(typeof value!=='string'||!value)return value;
+      const protection=this.options.storageProtection;
+      if(!protection?.isEncryptionAvailable())throw Error('系统凭据保护不可用，密钥未保存');
+      return {protected:'seekdesk-dpapi-v1',data:protection.encryptString(value).toString('base64')};
     });
-    return this.queue;
+    const target=path.join(this.options.storageDirectory,'nodeseek-pro.json');
+    try{await this.io.mkdir(this.options.storageDirectory,{recursive:true});await this.io.writeFile(target+'.tmp',JSON.stringify(encoded),'utf8');await this.io.rename(target+'.tmp',target);}
+    finally{await this.io.unlink(target+'.tmp').catch(()=>{});}
+  }
+  private commit(update:(previous:Stored)=>Stored) {
+    const task=this.queue.catch(()=>{}).then(async()=>{
+      this.assertHealthy();const next=update(this.values);
+      if(Buffer.byteLength(JSON.stringify(next))>MAX_STORAGE)throw new Error('脚本配置超过 512KB');
+      await this.persist(next);this.values=next;
+    });
+    this.queue=task;return task;
   }
   private assertSender(event:IpcMainInvokeEvent) {
     const official=this.options.getOfficialContents();
@@ -99,11 +145,9 @@ export class UserscriptHost {
     handle('userscript:set',async(key:unknown,value:unknown)=>{
       if(typeof key!=='string' || !/^[\w.-]{1,120}$/.test(key) || ['__proto__','prototype','constructor'].includes(key))throw new Error('脚本配置键无效');
       const clone=JSON.parse(JSON.stringify(value));
-      const next={...this.values,[key]:clone};
-      if(Buffer.byteLength(JSON.stringify(next))>MAX_STORAGE)throw new Error('脚本配置超过 512KB');
-      this.values=next;await this.save();
+      await this.commit(previous=>({...previous,[key]:clone}));
     });
-    handle('userscript:remove',async(key:unknown)=>{if(typeof key!=='string' || !/^[\w.-]{1,120}$/.test(key))throw new Error('脚本配置键无效');delete this.values[key];await this.save();});
+    handle('userscript:remove',async(key:unknown)=>{if(typeof key!=='string' || !/^[\w.-]{1,120}$/.test(key)||['__proto__','prototype','constructor'].includes(key))throw new Error('脚本配置键无效');await this.commit(previous=>Object.fromEntries(Object.entries(previous).filter(([name])=>name!==key)));});
     handle('userscript:open',async(url:unknown)=>{
       if(typeof url!=='string' || url.length>4096)throw new Error('链接无效');
       const parsed=new URL(url);if(!['https:','http:'].includes(parsed.protocol) || parsed.username || parsed.password)throw new Error('仅允许网页链接');
@@ -145,6 +189,7 @@ export class UserscriptHost {
   }
   async inject(contents:WebContents) {
     if(this.options.isEnabled?.()===false || contents.isDestroyed() || contents!==this.options.getOfficialContents() || !isOfficialUrl(contents.getURL()))return {status:'skipped'};
+    this.assertHealthy();
     const state=await contents.executeJavaScript(`(()=>{if(!document.querySelector('#nsk-head'))return null;try{return JSON.parse(JSON.stringify({user:window.__config__?.user||null,postData:window.__config__?.postData||null}));}catch{return null;}})()`);
     if(!state)return {status:'skipped'};
     const assets=await this.getAssets();

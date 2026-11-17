@@ -6,6 +6,55 @@ import os from 'node:os';
 import fsp from 'node:fs/promises';
 import {JSDOM,VirtualConsole} from 'jsdom';
 import {buildUserscriptRuntime,initialUserscriptValues,validateUserscriptRequest,UserscriptHost} from '../electron/userscripts';
+import {createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
+
+function protectedFixture(directory:string,options:Partial<ConstructorParameters<typeof UserscriptHost>[0]>={}){
+  const frame={url:'https://www.nodeseek.com/'},contents={isDestroyed:()=>false,mainFrame:frame},handlers=new Map<string,(...args:any[])=>any>();
+  const key=randomBytes(32);
+  const protection={isEncryptionAvailable:()=>true,encryptString:(value:string)=>{const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv),bytes=Buffer.concat([cipher.update(value,'utf8'),cipher.final()]);return Buffer.concat([iv,cipher.getAuthTag(),bytes]);},decryptString:(value:Buffer)=>{const cipher=createDecipheriv('aes-256-gcm',key,value.subarray(0,12));cipher.setAuthTag(value.subarray(12,28));return Buffer.concat([cipher.update(value.subarray(28)),cipher.final()]).toString('utf8');}};
+  const host=new UserscriptHost({storageDirectory:directory,getOfficialContents:()=>contents as any,onOpen:async()=>{},storageProtection:protection,...options});
+  host.registerIPC({handle:(name:string,callback:any)=>handlers.set(name,callback)} as any);
+  return {host,protection,set:(name:string,value:unknown)=>handlers.get('userscript:set')!({sender:contents,senderFrame:frame},name,value),remove:(name:string)=>handlers.get('userscript:remove')!({sender:contents,senderFrame:frame},name)};
+}
+test('Pro API credentials migrate and round-trip encrypted while ordinary preferences remain readable',async()=>{
+  const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'seekdesk-gm-crypto-')),target=path.join(directory,'nodeseek-pro.json');
+  try{
+    const values={settings:{ai_comment:{enabled:false,api_key:'fixture-ai-secret'},image_upload:{api_key:'fixture-image-secret'},ordinary:'preference'}};
+    await fsp.writeFile(target,JSON.stringify(values));const fixture=protectedFixture(directory);await fixture.host.load();assert.equal(fixture.host.storageWarning,undefined);
+    const saved=await fsp.readFile(target,'utf8');assert.doesNotMatch(saved,/fixture-ai-secret|fixture-image-secret/);assert.match(saved,/preference/);
+    const row=JSON.parse(saved);assert.equal(fixture.protection.decryptString(Buffer.from(row.settings.ai_comment.api_key.data,'base64')),'fixture-ai-secret');
+    const reloaded=protectedFixture(directory,{storageProtection:fixture.protection});await reloaded.host.load();assert.equal(reloaded.host.storageWarning,undefined);
+    await reloaded.set('probe',true);assert.equal(JSON.parse(await fsp.readFile(target,'utf8')).probe,true);
+    await reloaded.remove('probe');assert.equal(JSON.parse(await fsp.readFile(target,'utf8')).probe,undefined);
+    assert.doesNotMatch(await fsp.readFile(target,'utf8'),/fixture-ai-secret|fixture-image-secret/);
+  }finally{await fsp.rm(directory,{recursive:true,force:true});}
+});
+test('unavailable protection rejects new credentials without committing them or erasing previous settings',async()=>{
+  const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'seekdesk-gm-unavailable-')),target=path.join(directory,'nodeseek-pro.json');
+  try{
+    const fixture=protectedFixture(directory,{storageProtection:undefined});await fixture.host.load();await fixture.set('probe','retained');const original=await fsp.readFile(target,'utf8');
+    await assert.rejects(fixture.set('settings',{ai_comment:{api_key:'fixture-secret'}}),/未保存/);assert.equal(await fsp.readFile(target,'utf8'),original);
+    await fixture.set('another',true);assert.doesNotMatch(await fsp.readFile(target,'utf8'),/fixture-secret/);
+  }finally{await fsp.rm(directory,{recursive:true,force:true});}
+});
+test('unreadable or undecryptable Pro config remains preserved and refuses later writes',async()=>{
+  const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'seekdesk-gm-broken-')),target=path.join(directory,'nodeseek-pro.json');
+  try{
+    for(const original of ['{"settings":','null','[]',JSON.stringify({settings:{api_key:{protected:'seekdesk-dpapi-v1',data:'AAAA'}}})]){
+      await fsp.writeFile(target,original);const fixture=protectedFixture(directory);await fixture.host.load();assert.match(fixture.host.storageWarning||'',/原文件已保留/);
+      await assert.rejects(fixture.set('probe',true),/无法读取/);await assert.rejects(fixture.remove('settings'),/无法读取/);assert.equal(await fsp.readFile(target,'utf8'),original);
+    }
+  }finally{await fsp.rm(directory,{recursive:true,force:true});}
+});
+test('failed Pro writes do not become active and later queued saves retain confirmed state',async()=>{
+  const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'seekdesk-gm-failure-')),target=path.join(directory,'nodeseek-pro.json');let fail=false;
+  try{
+    const fixture=protectedFixture(directory,{fileSystem:{...fsp,rename:async(...args:Parameters<typeof fsp.rename>)=>{if(fail){fail=false;throw Error('synthetic denied');}return fsp.rename(...args);}}});
+    await fixture.host.load();await fixture.set('probe','confirmed');fail=true;
+    const rejected=assert.rejects(fixture.set('probe','uncommitted'),/synthetic/),queued=fixture.set('other',true);await rejected;await queued;
+    const saved=JSON.parse(await fsp.readFile(target,'utf8'));assert.equal(saved.probe,'confirmed');assert.equal(saved.other,true);assert.equal((await fsp.readdir(directory)).some(file=>file.endsWith('.tmp')),false);
+  }finally{await fsp.rm(directory,{recursive:true,force:true});}
+});
 
 test('NodeSeek Pro cross-origin requests reject local schemes, credentials, cookies and unknown endpoints',()=>{
   for(const url of ['file:///C:/Windows/win.ini','http://api.nodeimage.com/test','https://localhost/test','https://127.0.0.1/test','https://api.openai.com.evil.invalid/test','https://user:pass@api.openai.com/test','https://api.openai.com:444/test'])assert.throws(()=>validateUserscriptRequest({url}));

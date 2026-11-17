@@ -1,4 +1,4 @@
-import { app, autoUpdater, BrowserWindow, WebContentsView, ipcMain, session, shell, clipboard, Notification, globalShortcut, nativeImage, dialog, screen, Tray, Menu, type Session, type IpcMainInvokeEvent, type WebContents } from 'electron';
+import { app, autoUpdater, BrowserWindow, WebContentsView, ipcMain, session, shell, clipboard, Notification, globalShortcut, nativeImage, dialog, screen, Tray, Menu, safeStorage, type Session, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -43,7 +43,6 @@ let officialPoll: ReturnType<typeof setInterval> | undefined;
 let officialInspectionPending = false;
 let readerWindow: BrowserWindow | null = null;
 let profileWindow: BrowserWindow | null = null;
-let profileReady: Promise<BrowserWindow> | null = null;
 // Pro queues metadata reads with a 300 ms gap; keep the same pacing while
 // retaining cache/deduplication and account-bound cancellation for every author.
 const memberProfiles = new MemberProfilesService(fetchUserProfile,{maxConcurrency:1,requestDelayMs:300,retryDelayMs:300});
@@ -66,6 +65,7 @@ let confirmedIdentity: string | undefined;
 let generation = 0;
 let verificationUntil = 0;
 let websiteQueue: Promise<unknown> = Promise.resolve();
+let metadataQueue: Promise<unknown> = Promise.resolve();
 let rssCache: {posts: Post[]; time:number} | null = null;
 const publicLibraryPosts=new Map<string,Post>();
 let rssPending: Promise<Post[]> | null = null;
@@ -136,11 +136,11 @@ function secureRemote(contents: WebContents, isOfficialView = false, background 
     if (isMainFrame && !isOfficialUrl(url)) event.preventDefault();
   });
 }
-async function inspectAccount(contents: WebContents, authoritative=false) {
+async function inspectAccount(contents: WebContents, authoritative=false,reader=false) {
   const version = generation;
   if (contents.isDestroyed() || !isOfficialUrl(contents.getURL())) return account;
   try {
-    const result = await contents.executeJavaScript(extractIdentityScript) as AccountState;
+    const result = reader?await evaluateReader<AccountState>(contents,extractIdentityScript):await contents.executeJavaScript(extractIdentityScript) as AccountState;
     if (version === generation && result && ['unknown','signed-in','signed-out','verification'].includes(result.status)) {
       if (authoritative || !officialState.visible || officialState.purpose==='calculator') {setAccount(result);return account;}
       return result;
@@ -260,56 +260,77 @@ async function openOfficial(input?: string) {
     if(view===officialView)updateOfficial({loading:false,error:'官方页面加载失败，请检查网络后重试'});
   }
 }
-function getReader() {
-  if (!readerWindow || readerWindow.isDestroyed()) {
-    readerWindow = new BrowserWindow({show:false,width:1200,height:900,webPreferences:remoteOptions()});
-    secureRemote(readerWindow.webContents);
-    const win=readerWindow;
-    const setup=(async()=>{await bounded(win.loadURL('about:blank'),6000,'读取页初始化超时');win.webContents.debugger.attach('1.3');await bounded(win.webContents.debugger.sendCommand('Page.enable'),6000,'读取页调试通道初始化超时');await bounded(win.webContents.debugger.sendCommand('Network.enable'),6000,'读取页网络通道初始化超时');await bounded(win.webContents.debugger.sendCommand('Network.setCacheDisabled',{cacheDisabled:true}),6000,'读取页刷新策略初始化超时');await bounded(win.webContents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument',{source:captureTerminalsScript}),6000,'终端报告初始化超时');})();
-    readerSetup.set(win,setup);
-    readerWindow.on('closed', () => { if(readerWindow===win)readerWindow = null; });
-  }
-  return readerWindow;
+function getReader(metadata=false):BrowserWindow {
+  const current=metadata?profileWindow:readerWindow;
+  if(current&&!current.isDestroyed())return current;
+  // Reuse the existing profile context for read-only APIs; slow notifications
+  // cannot hold the document queue, and no third hidden renderer is needed.
+  const win=new BrowserWindow({show:false,width:1200,height:900,webPreferences:{...remoteOptions(),backgroundThrottling:false}});
+  if(metadata)profileWindow=win;else readerWindow=win;
+  secureRemote(win.webContents,false,true);
+  const setup=(async()=>{
+    await bounded(win.loadURL('about:blank'),6000,'读取页初始化超时');
+    const debuggerApi=win.webContents.debugger;debuggerApi.attach('1.3');
+    await bounded(debuggerApi.sendCommand('Page.enable'),6000,'读取页调试通道初始化超时');
+    // Only these hidden targets skip media. The official login view shares the
+    // session, so session-wide request interception would break its UI/captcha.
+    debuggerApi.on('message',(_event,method,params)=>{
+      if(method==='Fetch.requestPaused')void debuggerApi.sendCommand('Fetch.failRequest',{requestId:params.requestId,errorReason:'Aborted'}).catch(()=>{});
+    });
+    await bounded(debuggerApi.sendCommand('Fetch.enable',{patterns:['Image','Font','Media'].map(resourceType=>({resourceType,requestStage:'Request'}))}),6000,'读取页资源策略初始化超时');
+    await bounded(debuggerApi.sendCommand('Page.addScriptToEvaluateOnNewDocument',{source:String.raw`(()=>{
+      const settled=new WeakSet();
+      const record=event=>{if(event.target instanceof HTMLLinkElement)settled.add(event.target);};
+      document.addEventListener('load',record,true);document.addEventListener('error',record,true);
+      window.__seekDeskStylesReady=()=>Promise.all([...document.querySelectorAll('link[rel~="stylesheet"]')].map(link=>{
+        if(link.sheet||settled.has(link)||link.disabled||link.media&&!matchMedia(link.media).matches)return;
+        return new Promise(resolve=>{const done=()=>{link.removeEventListener('load',done);link.removeEventListener('error',done);resolve();};link.addEventListener('load',done);link.addEventListener('error',done);});
+      }));
+    })();`}),6000,'读取页样式策略初始化超时');
+    // Keep stylesheet/script caching. Each document navigation below is still
+    // revalidated, so asset reuse never substitutes an old reply document.
+    if(!metadata)await bounded(debuggerApi.sendCommand('Page.addScriptToEvaluateOnNewDocument',{source:captureTerminalsScript}),6000,'终端报告初始化超时');
+  })();
+  readerSetup.set(win,setup);
+  win.on('closed',()=>{if(readerWindow===win)readerWindow=null;if(profileWindow===win)profileWindow=null;});
+  return win;
 }
 async function bounded<T>(promise: Promise<T>, ms: number, message='官网读取超时'): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([promise,new Promise<never>((_,reject) => {timer=setTimeout(() => reject(new Error(message)),ms);})]); }
   finally { clearTimeout(timer); }
 }
+async function loadReaderDocument(win:BrowserWindow,url:string) {
+  const contents=win.webContents,start=Date.now();
+  let ready!:()=>void,fail!:(error:Error)=>void;
+  const documentReady=new Promise<void>((resolve,reject)=>{ready=resolve;fail=reject;});
+  const destroyed=()=>fail(new Error('会话已变更，请重新读取'));
+  contents.once('dom-ready',ready);contents.once('destroyed',destroyed);
+  // DOM-ready includes deferred scripts, but not unrelated images/iframes.
+  // Explicitly await styles too: DOMContentLoaded alone need not wait for CSS,
+  // and extraction must preserve the site's computed hidden-content rules.
+  void win.loadURL(url,{extraHeaders:'Cache-Control: no-cache\r\nPragma: no-cache\r\n'}).catch(fail);
+  try{
+    await bounded(documentReady,16000);
+    await bounded(evaluateReader(contents,'window.__seekDeskStylesReady()'),Math.max(1,16000-(Date.now()-start)),'官网样式加载超时');
+  }finally{contents.removeListener('dom-ready',ready);contents.removeListener('destroyed',destroyed);}
+}
+async function evaluateReader<T>(contents:WebContents,script:string):Promise<T> {
+  // executeJavaScript itself waits for the full load event. CDP evaluates in
+  // the same sandboxed, official renderer as soon as its document is ready.
+  const evaluation=await contents.debugger.sendCommand('Runtime.evaluate',{expression:script,returnByValue:true,awaitPromise:true});
+  if(evaluation.exceptionDetails)throw new Error(evaluation.exceptionDetails.exception?.description||evaluation.exceptionDetails.text||'官网读取失败');
+  return evaluation.result.value as T;
+}
 function resetProfileScope() {
   memberProfiles.resetScope(generation);
-  const previous=profileWindow;profileWindow=null;profileReady=null;
+  const previous=profileWindow;profileWindow=null;
   previous?.destroy();
-}
-function getProfileWindow(version:number):Promise<BrowserWindow> {
-  if(profileReady&&profileWindow&&!profileWindow.isDestroyed())return profileReady;
-  const win=new BrowserWindow({show:false,width:900,height:700,webPreferences:remoteOptions()});
-  profileWindow=win;
-  win.on('closed',()=>{if(profileWindow===win){profileWindow=null;profileReady=null;}});
-  secureRemote(win.webContents,false,true);
-  const ready=(async()=>{
-    try {
-      const readerUrl=readerWindow&&!readerWindow.isDestroyed()?readerWindow.webContents.getURL():'';
-      const seedUrl=isOfficialUrl(readerUrl)?readerUrl.split('#')[0]:FORUM_ORIGIN+'/';
-      await bounded(win.loadURL(seedUrl,{extraHeaders:'Cache-Control: no-cache\r\n'}),16000);
-      if(version!==generation||win!==profileWindow)throw new Error('会话已变更');
-      if(!isOfficialUrl(win.webContents.getURL()))throw new Error('资料页面不可用');
-      return win;
-    } catch(error) {
-      if(win===profileWindow){profileWindow=null;profileReady=null;}
-      if(!win.isDestroyed())win.destroy();
-      throw error;
-    }
-  })();
-  profileReady=ready;
-  return ready;
 }
 async function fetchUserProfile(memberId:number,signal:AbortSignal):Promise<ProfileFetchResult> {
   const version=generation,owner=account.status==='signed-in'?account.id:undefined;
   try {
-    const win=await getProfileWindow(version);
-    if(signal.aborted||version!==generation)return {ok:false,reason:'session-changed'};
-    const result=await bounded(win.webContents.executeJavaScript(createUserProfileScript(memberId,owner)),12500) as ProfileFetchResult;
+    const result=await onWebsite<ProfileFetchResult>(FORUM_ORIGIN+'/',createUserProfileScript(memberId,owner),{metadata:true,reuse:true,timeout:12500,signal});
     if(signal.aborted||version!==generation)return {ok:false,reason:'session-changed'};
     return result;
   } catch(error) {
@@ -317,39 +338,46 @@ async function fetchUserProfile(memberId:number,signal:AbortSignal):Promise<Prof
     return {ok:false,reason:error instanceof Error&&/超时/.test(error.message)?'timeout':'network'};
   }
 }
-function onWebsite<T>(url: string, script: string, options: {timeout?:number;action?:boolean;reuse?:boolean}={}): Promise<T> {
+function onWebsite<T>(url: string, script: string, options: {timeout?:number;action?:boolean;reuse?:boolean;metadata?:boolean;signal?:AbortSignal}={}): Promise<T> {
   const version = generation;
-  const task = websiteQueue.catch(() => {}).then(async () => {
-    if (version !== generation) throw new Error('会话已变更，请重新读取');
+  const queue=options.metadata?metadataQueue:websiteQueue;
+  const task = queue.catch(() => {}).then(async () => {
+    if (version !== generation||options.signal?.aborted) throw new Error('会话已变更，请重新读取');
     if (Date.now() < verificationUntil) throw new Error('官网需要验证或当前不可用');
-    const win = getReader();
+    const win = getReader(options.metadata);
     try {
       await bounded(readerSetup.get(win)!,19000,'读取页初始化超时');
       // A floor fragment only identifies a location in React. Navigating Chromium
       // with it can reuse the previous document instead of fetching new replies.
       const documentUrl=new URL(url);documentUrl.hash='';
-      if(!options.reuse||win.webContents.getURL().split('#')[0]!==documentUrl.href)await bounded(win.loadURL(documentUrl.href,{extraHeaders:'Cache-Control: no-cache\r\nPragma: no-cache\r\n'}), 16000);
+      if(!options.reuse||win.webContents.getURL().split('#')[0]!==documentUrl.href)await loadReaderDocument(win,documentUrl.href);
       if (version !== generation) throw new Error('会话已变更，请重新读取');
       const actual = new URL(win.webContents.getURL());
       if (!isOfficialUrl(actual.href) || actual.pathname !== new URL(url).pathname) throw new Error('页面跳转，请在官方窗口登录后重试');
-      const observed = await inspectAccount(win.webContents);
+      const observed = await inspectAccount(win.webContents,false,true);
       if (observed.status === 'verification') throw new Error('官网需要人工验证');
-      const result = await bounded(win.webContents.executeJavaScript(script),options.timeout ?? 6000,options.action?'操作结果尚未确认，请先刷新核实，勿重复提交':'官网读取超时') as T | null;
+      if(version!==generation||options.signal?.aborted)throw new Error('会话已变更，请重新读取');
+      const result = await bounded(evaluateReader<T>(win.webContents,script),options.timeout ?? 6000,options.action?'操作结果尚未确认，请先刷新核实，勿重复提交':'官网读取超时');
       if (version !== generation) throw new Error('会话已变更，请重新读取');
       if (!result) throw new Error('当前官网内容不可读取，请在官方窗口查看');
       return result;
     } catch (error) {
       if (!win.isDestroyed()) win.webContents.stop();
-      if(version === generation && !options.action && /验证|跳转|超时|不可读取|连接/.test(error instanceof Error?error.message:'')) verificationUntil = Date.now() + 60000;
+      // A slow resource or API is not a site challenge. Ordinary transient
+      // failures must allow the next refresh instead of locking all reads 60s.
+      if(version === generation && !options.action && /验证|跳转/.test(error instanceof Error?error.message:'')) verificationUntil = Date.now() + 60000;
       throw error;
     }
   });
-  websiteQueue = task;
+  if(options.metadata)metadataQueue=task;else websiteQueue = task;
   return task;
 }
 async function queryForum(input:ForumQueryRequest):Promise<ForumQueryResult>{
   const request=validateQueryRequest(input),owner=account.status==='signed-in'?account.id:undefined,version=generation;
-  const result=await onWebsite<ForumQueryResult>(requestPage(request),createQueryScript(request,owner),{timeout:35000,reuse:!['search','edit-source','composer-options'].includes(request.kind)});
+  const metadata=!['search','edit-source','composer-options'].includes(request.kind);
+  // API queries get a fresh official identity before account-bound data. Only
+  // progressive author metadata reuses this context within the same generation.
+  const result=await onWebsite<ForumQueryResult>(requestPage(request),createQueryScript(request,owner),{timeout:35000,metadata});
   if(version!==generation)throw new Error('会话已变更，请重新读取');
   if(result.posts)result.posts=result.posts.map(post=>({...post,url:normalizePostUrl(post.url),summary:sanitizeContent(post.summary||'')}));
   if(result.activity)result.activity=result.activity.map(item=>({...item,html:item.html?sanitizeContent(item.html):undefined}));
@@ -481,7 +509,7 @@ async function loadAvatar(input: unknown): Promise<string | null> {
 async function prepareRendererSave(reason:'quit'|'update') {
   const contents=mainWindow&&!mainWindow.isDestroyed()?mainWindow.webContents:undefined;
   if(reason==='quit'&&(!contents||contents.isDestroyed())){
-    await Promise.all([store?.save(),features?.save(),desktopWindow?.flush()]);
+    await Promise.all([store?.save(),features?.storageWarning?undefined:features?.save(),desktopWindow?.flush()]);
     return;
   }
   try{
@@ -501,7 +529,7 @@ async function prepareRendererSave(reason:'quit'|'update') {
       contents.once('destroyed',onDestroyed);
       contents.send('app:update-prepare',id,reason);
     });
-    await Promise.all([store.save(),features.save(),desktopWindow.flush()]);
+    await Promise.all([store.save(),features.storageWarning?undefined:features.save(),desktopWindow.flush()]);
   }catch(error){if(contents&&!contents.isDestroyed())contents.send('app:save-cancelled',reason);throw error;}
 }
 function registerIPC() {
@@ -579,7 +607,7 @@ function registerIPC() {
   handle('extensions:boss-toggle',()=>toggleBoss());
   handle('app:clipboard',(value:unknown)=>{if(typeof value!=='string'||value.length>2000000)throw new Error('复制文本无效');return clipboard.writeText(value);});
   handle('app:updates',()=>updater.check());
-  handle('app:bootstrap', () => ({settings:store.settings,workspace:store.settings.restoreTabs ? restoredWorkspace(store.workspace) : {tabs:[],activeId:null,overviewOpen:store.workspace.overviewOpen ?? true,listHidden:store.workspace.listHidden===true},account,version:app.getVersion(),buildNumber,official:officialState,blockedUsers:store.blockedUsers}));
+  handle('app:bootstrap', () => ({settings:store.settings,workspace:store.settings.restoreTabs ? restoredWorkspace(store.workspace) : {tabs:[],activeId:null,overviewOpen:store.workspace.overviewOpen ?? true,listHidden:store.workspace.listHidden===true},account,version:app.getVersion(),buildNumber,official:officialState,blockedUsers:store.blockedUsers,storageWarning:[features.storageWarning,userscriptHost.storageWarning].filter(Boolean).join('；')||undefined}));
   handle('forum:list', (request: ListingRequest) => listPosts(request || {}));
   handle('forum:thread', readThread);
   handle('forum:profiles',request=>memberProfiles.read(request));
@@ -600,7 +628,7 @@ function registerIPC() {
   handle('app:external', (url: string) => shell.openExternal(safeHttp(url)));
   handle('forum:account', async () => {
     if (officialState.purpose!=='calculator'&&officialView && !officialView.webContents.isDestroyed()) return inspectOfficial();
-    try { await onWebsite(FORUM_ORIGIN+'/',extractIdentityScript); } catch { /* Expose unknown/verification instead of claiming login. */ }
+    try { await onWebsite(FORUM_ORIGIN+'/',extractIdentityScript,{metadata:true}); } catch { /* Expose unknown/verification instead of claiming login. */ }
     return account;
   });
   handle('forum:clear', async () => {
@@ -683,7 +711,7 @@ else {
       onBossKey:configureBoss,
       onMatch:hit=>{if(!extensions.getState().watchSystemNotifications||!Notification.isSupported())return;const notification=new Notification({title:'SeekDesk · 关键词提醒',body:hit.post.title,silent:false});notification.on('click',()=>{mainWindow?.show();mainWindow?.focus();mainWindow?.webContents.send('app:open-post',hit.post);});notification.show();}
     });
-    userscriptHost=new UserscriptHost({storageDirectory:path.join(app.getPath('userData'),'userscripts'),getOfficialContents:()=>officialState.purpose==='calculator'?null:officialView?.webContents ?? null,isEnabled:()=>store.settings.nodeSeekPro&&officialState.purpose!=='calculator',onOpen:async(url:string)=>{if(isOfficialUrl(url))await openOfficial(url);else await shell.openExternal(safeHttp(url));}});
+    userscriptHost=new UserscriptHost({storageDirectory:path.join(app.getPath('userData'),'userscripts'),storageProtection:safeStorage,getOfficialContents:()=>officialState.purpose==='calculator'?null:officialView?.webContents ?? null,isEnabled:()=>store.settings.nodeSeekPro&&officialState.purpose!=='calculator',onOpen:async(url:string)=>{if(isOfficialUrl(url))await openOfficial(url);else await shell.openExternal(safeHttp(url));}});
     await userscriptHost.load();
     userscriptHost.registerIPC(ipcMain);
     registerIPC();

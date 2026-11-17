@@ -68,6 +68,7 @@ const ReaderContentBody = memo(function ReaderContentBody({html,onNavigate,nqSca
   useEffect(()=>setLocalScale({nq:nqScale,tq:tqScale}),[nqScale,tqScale]);
   const document=useMemo(()=>new DOMParser().parseFromString(DOMPurify.sanitize(html,{USE_PROFILES:{html:true},ADD_ATTR:['target','rel','loading','referrerpolicy'],FORBID_TAGS:['style','form','input','iframe','object','embed'],FORBID_ATTR:['srcset']}),'text/html'),[html]);
   const images=useMemo(()=>[...document.querySelectorAll('img[src]')].filter(row=>!row.classList.contains('sticker')).map(row=>({url:row.getAttribute('src')!,alt:row.getAttribute('alt')||'帖子图片'})),[document]);
+  useEffect(()=>setGallery(null),[html]);
   const scale=(kind:'nq'|'tq')=>localScale[kind],changeScale=(kind:'nq'|'tq',value:number)=>{setLocalScale(old=>({...old,[kind]:value}));reportScale.current?.(kind,value);};
   const render=(nodes:NodeListOf<ChildNode>|ChildNode[],prefix:string,report?:'nq'|'tq'):ReactNode=>[...nodes].map((node,index)=>{
     const key=prefix+'-'+index;if(node.nodeType===Node.TEXT_NODE)return node.textContent;if(node.nodeType!==Node.ELEMENT_NODE)return null;const el=node as HTMLElement,tag=el.tagName.toLowerCase();
@@ -75,7 +76,7 @@ const ReaderContentBody = memo(function ReaderContentBody({html,onNavigate,nqSca
     if(tag==='pre')return <CodePanel key={key} node={el} terminal={el.classList.contains('seekdesk-terminal')} scale={scale('nq')} onScale={value=>changeScale('nq',value)}/>;
     if(tag==='img'){
       const url=el.getAttribute('src')||'',alt=el.getAttribute('alt')||'帖子图片',sticker=el.classList.contains('sticker')||/\/static\/image\/sticker\//.test(url);if(!/^https:\/\//i.test(url))return null;
-      const image=sticker?<img key={key} src={url} alt={alt} className="sticker" loading="lazy" referrerPolicy="no-referrer"/>:<LazyReaderImage key={key} url={url} alt={alt} onClick={()=>setGallery(images.findIndex(image=>image.url===url))}/>;
+      const image=sticker?<img key={key+':'+url} src={url} alt={alt} className="sticker" loading="lazy" referrerPolicy="no-referrer"/>:<LazyReaderImage key={key+':'+url} url={url} alt={alt} onClick={()=>setGallery(images.findIndex(image=>image.url===url))}/>;
       return report&&!sticker?<ScaledContent key={key} kind={report} percentage={scale(report)}>{image}</ScaledContent>:image;
     }
     const attributes:Record<string,unknown>={key};
@@ -88,6 +89,6 @@ const ReaderContentBody = memo(function ReaderContentBody({html,onNavigate,nqSca
     if(tag==='br'||tag==='hr')return createElement(tag,attributes);
     return createElement(tag,attributes,render(el.childNodes,key,report));
   });
-  return <div className="reader-rich-content">{render(document.body.childNodes,'content')}{gallery!==null&&gallery>=0&&<ImageGallery images={images} index={gallery} onIndex={setGallery} onClose={()=>setGallery(null)}/>}</div>;
+  return <div className="reader-rich-content">{render(document.body.childNodes,'content')}{gallery!==null&&gallery>=0&&gallery<images.length&&<ImageGallery key={images[gallery].url} images={images} index={gallery} onIndex={setGallery} onClose={()=>setGallery(null)}/>}</div>;
 });
 export default ReaderContent;

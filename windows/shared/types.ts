@@ -129,6 +129,7 @@ export interface Bootstrap {
   account: AccountState;
   version: string;
   buildNumber?: string;
+  storageWarning?: string;
   official: OfficialViewState;
   blockedUsers: number[];
 }

@@ -1,4 +1,5 @@
-const {app,BrowserWindow,WebContentsView,session}=require('electron');
+const {app,BrowserWindow,WebContentsView,session,safeStorage}=require('electron');
+globalThis.performance=require('node:perf_hooks').performance;
 const path=require('node:path');
 const {UserscriptHost,USERSCRIPT_WORLD}=require('../dist-electron/electron/userscripts');
 app.setPath('userData',process.env.SEEKDESK_USER_DATA);
@@ -19,9 +20,9 @@ app.whenReady().then(async()=>{
  await main.loadURL('data:text/html,<html><body style="font:16px system-ui">SeekDesk · NodeSeek Pro 隔离测试</body></html>');
  const view=new WebContentsView({webPreferences:{session:s,preload:path.resolve(__dirname,'../dist-electron/electron/userscript-preload.js'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
  main.contentView.addChildView(view);view.setBounds({x:0,y:40,width:1100,height:720});
- const host=new UserscriptHost({storageDirectory:path.join(process.env.SEEKDESK_USER_DATA,'gm'),getOfficialContents:()=>view.webContents,onOpen:async()=>{},isEnabled:()=>true});
+ const host=new UserscriptHost({storageDirectory:path.join(process.env.SEEKDESK_USER_DATA,'gm'),storageProtection:safeStorage,getOfficialContents:()=>view.webContents,onOpen:async()=>{},isEnabled:()=>true});
  await host.load();host.registerIPC(require('electron').ipcMain);
- view.webContents.on('console-message',(_event,_level,message)=>{if(message.includes('Error'))globalThis.userscriptTest.errors.push(message);});
+ view.webContents.on('console-message',event=>{if(event.message.includes('Error'))globalThis.userscriptTest.errors.push(event.message);});
  await view.webContents.loadURL('https://www.nodeseek.com/');
  const result=await host.inject(view.webContents);
  globalThis.userscriptTest.host=host;globalThis.userscriptTest.contents=view.webContents;globalThis.userscriptTest.result=result;globalThis.userscriptTest.world=USERSCRIPT_WORLD;globalThis.userscriptTest.ready=true;

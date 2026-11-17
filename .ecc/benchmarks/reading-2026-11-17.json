@@ -1,0 +1,68 @@
+{
+  "date": "2026-11-17",
+  "unit": "ms",
+  "baseline": "v0.1.3",
+  "candidate": "v0.1.4",
+  "scope": "Low volume anonymous reads plus isolated deterministic resource/API delays; no real account or writes.",
+  "controlled": {
+    "before": {
+      "slowImageThread123": 2296,
+      "slowImageThread124": 2216,
+      "threadDuringBackgroundAccount": 1817
+    },
+    "after": {
+      "slowImageThread123": 209,
+      "slowImageThread124": 39,
+      "sameUrlRefresh": 34,
+      "threadDuringBackgroundAccount": 43,
+      "delayedStylesThread": 374
+    }
+  },
+  "public": {
+    "before": {
+      "direct": {
+        "domMs": 2281,
+        "loadMs": 2908,
+        "page": {
+          "verification": false,
+          "postLinks": 103
+        }
+      },
+      "client": {
+        "ms": 6195,
+        "source": "web",
+        "count": 102
+      }
+    },
+    "after": {
+      "testedAt": "2026-11-17T08:31:21.251Z",
+      "scope": "Live anonymous homepage and one public post, fresh isolated Chromium profile, no login or writes.",
+      "direct": {
+        "domMs": 2487,
+        "loadMs": 3083,
+        "page": {
+          "verification": false,
+          "postLinks": 102
+        }
+      },
+      "client": {
+        "ms": 2341,
+        "source": "web",
+        "count": 102
+      },
+      "thread": {
+        "ms": 1117,
+        "source": "web",
+        "comments": 1
+      },
+      "account": {
+        "status": "verification"
+      }
+    }
+  },
+  "limitations": [
+    "Small live sample, not a percentile or SLA",
+    "The final anonymous identity refresh encountered website verification",
+    "Image/Font/Media interception is per hidden target; protocol fixtures intentionally also prove DOM-ready reading without interception"
+  ]
+}
