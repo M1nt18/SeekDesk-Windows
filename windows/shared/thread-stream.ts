@@ -81,6 +81,7 @@ export function mergeThreadPage(current:ThreadResult,incoming:ThreadResult):Thre
   assertThread(current);assertThread(incoming);
   if(current.id!==incoming.id)throw new Error('下一页属于其他帖子，已停止追加');
   if(!validPage(current.nextPage)||incoming.page!==current.nextPage||incoming.page<=current.page)throw new Error('返回页码不是待加载的下一页，请刷新后重试');
+  if(incoming.accessStatus==='private')return {...incoming,comments:[],nextPage:null};
 
   const comments:Comment[]=[],positions=new Map<string,number>();
   for(const comment of [...current.comments,...incoming.comments]){

@@ -380,7 +380,7 @@ test('completed updates retry cache cleanup promptly after the NSIS finish windo
     await f.service.check();await f.service.download();await f.service.install();f.service.dispose();
     let busy=true;restarted=new UpdaterService({currentVersion:'0.2.0',isPackaged:true,isInstalled:true,userDataDirectory:f.directory,automaticCheckDelayMs:60_000,cleanupRetryDelayMs:10,installerBusy:async()=>busy,nativeFactory:cache=>new FakeNative(cache)});
     await restarted.initialize();assert.ok(await fs.stat(path.join(f.cache,'pending',fileName)));busy=false;
-    for(let i=0;i<50;i++){if(!(await fs.readdir(path.join(f.cache,'pending'))).length)break;await new Promise(resolve=>setTimeout(resolve,5));}
+    for(let i=0;i<200;i++){const files=await fs.readdir(path.join(f.cache,'pending')),receipt=await fs.stat(path.join(f.cache,'seekdesk-update.json')).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;});if(!files.length&&!receipt)break;await new Promise(resolve=>setTimeout(resolve,10));}
     assert.deepEqual(await fs.readdir(path.join(f.cache,'pending')),[]);await assert.rejects(fs.stat(path.join(f.cache,'seekdesk-update.json')));
   }finally{restarted?.dispose();await f.close();}
 });

@@ -1,6 +1,6 @@
 {
   "name": "seekdesk-windows",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "SeekDesk Windows · NodeSeek 多标签阅读客户端",
   "author": "SeekDesk Windows contributors (upstream: cshaizhihao)",
@@ -21,7 +21,8 @@
     "test:desktop": "node scripts/desktop-main-smoke.cjs && node scripts/desktop-ui-smoke.cjs && node scripts/hot-reply-ui-smoke.cjs",
     "test:installer-options": "node scripts/check-installer-options.cjs",
     "dist": "npm run build && electron-builder --win nsis --x64 --publish never && node scripts/prepare-update.cjs",
-    "pack": "npm run build && electron-builder --win --x64 --dir --publish never"
+    "pack": "npm run build && electron-builder --win --x64 --dir --publish never",
+    "test:review": "node scripts/review-boundaries-main-smoke.cjs && node scripts/review-interactions-smoke.cjs"
   },
   "dependencies": {
     "decimal.js": "^10.6.0",

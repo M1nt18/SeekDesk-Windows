@@ -13,3 +13,5 @@
 }
 .reader-rich-content a:hover { text-decoration-color: currentColor; }
 .reader-rich-content .reader-original-link { color: var(--link-blue, #0665c5); }
+
+.reader-image-open{display:block;padding:0;margin:0;border:0;background:none;max-width:100%;cursor:zoom-in}.reader-image-open:focus-visible{outline:2px solid #5b8df3;outline-offset:3px}.gallery-feedback{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:8px 16px;border-radius:8px;background:#253349;color:#fff}

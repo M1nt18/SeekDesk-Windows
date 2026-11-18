@@ -40,6 +40,13 @@ test('edit revalidates ownership, floor and genuine comment ID on the official p
     f.win.__config__.user.member_id=88;await assert.rejects(f.write({kind:'edit',url:'https://www.nodeseek.com/post-123-1',floor:'8',content:'x'}),/账号会话/);assert.equal(f.calls.length,1);
   }finally{f.page.window.close();}
 });
+test('comment editing ignores empty or stale title fields while topic editing still validates its title',async()=>{
+  for(const title of ['',undefined,'stale topic title',null]){
+    const request=validateWriteRequest({kind:'edit',url:'https://www.nodeseek.com/post-123-1',floor:'8',content:'修订自己的回复',title});assert.equal(Object.hasOwn(request,'title'),false);
+  }
+  const f=fixture();try{await f.write({kind:'edit',url:'https://www.nodeseek.com/post-123-1',floor:'8',content:'修订自己的回复',title:''});assert.deepEqual(JSON.parse(f.calls[0].options.body),{mode:'edit-comment',content:'修订自己的回复',commentId:9876});}finally{f.page.window.close();}
+  assert.throws(()=>validateWriteRequest({kind:'edit',url:'https://www.nodeseek.com/post-123-1',floor:'0',content:'正文',title:''}),/标题/);
+});
 test('publish reads actual enabled categories and account rank and only accepts safe redirect',async()=>{
   const f=fixture(async()=>response({success:true,redirect:'https://evil.test/post-444-1'}),'https://www.nodeseek.com/new-discussion');try{
     const result=await f.query({kind:'composer-options'});assert.equal(result.options.categories.length,1);assert.equal(result.options.ranks.length,5);

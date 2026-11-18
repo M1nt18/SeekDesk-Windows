@@ -182,6 +182,15 @@ export const extractThreadScript = String.raw`(() => {
   if (!route) return null;
   const main = document.querySelector('#nsk-body-left');
   const title = main?.querySelector('h1 .post-title-link, .nsk-post-wrapper .post-title-link');
+  // Only official visible notices outside user content may classify a private
+  // denial. A quoted sentence or a hidden message in a post cannot do so.
+  const userContent='.post-title-link,.post-title,.nsk-content-meta-info,.post-content,.comments,.content-item,.comment-signature,script,style,template';
+  const visible=node=>{for(let current=node;current&&current.nodeType===1;current=current.parentElement){const style=getComputedStyle(current);if(current.hidden||current.getAttribute('aria-hidden')==='true'||style.display==='none'||style.visibility==='hidden'||style.visibility==='collapse')return false;}return true;};
+  const privateText=/^本帖(?:已经|已)?被(?:用户|作者)设为私有[，,。\s]*您(?:没有|无)阅读权限[。\s]*$/;
+  const denied=node=>{if(!privateText.test((node.textContent||'').trim())||node.closest(userContent)||node.querySelector(userContent)||!visible(node))return false;const textNodes=document.createTreeWalker(node,NodeFilter.SHOW_TEXT);let text='';for(let child=textNodes.nextNode();child;child=textNodes.nextNode())if(child.parentElement&&visible(child.parentElement))text+=child.textContent;return privateText.test(text.trim());};
+  const root=main||document.body;let privateNotice=false;
+  if((root.textContent||'').includes('设为私有')){const walker=document.createTreeWalker(root,NodeFilter.SHOW_ELEMENT,{acceptNode:node=>node.matches(userContent)?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});privateNotice=denied(root);for(let node=walker.nextNode();node&&!privateNotice;node=walker.nextNode())privateNotice=denied(node);}
+  if(privateNotice)return {id:route[1],url:location.href,title:'私有帖子',source:'web',page:Number(route[2]),nextPage:null,comments:[],accessStatus:'private',replyRestriction:'本帖已经被用户设为私有，您没有阅读权限'};
   if (!main || !title) return null;
   const plain = node => (node?.textContent || '').trim();
   const integer = value => (typeof value==='number'||typeof value==='string'&&value.trim()!=='') && Number.isSafeInteger(Number(value)) && Number(value)>=0 ? Number(value) : undefined;

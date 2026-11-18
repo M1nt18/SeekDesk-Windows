@@ -1,3 +1,4 @@
+import {RankingRow} from './components/RankingRow';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Bell, BookOpen, Check, ChevronLeft, ChevronRight, Clock, Code2, Download, ExternalLink, Flame, Heart, ImagePlus, LoaderCircle, Mail, MessageSquare, Plus, RefreshCw, Save, Search, Send, Settings2, ShieldCheck, Trash2, UserRound, Users, X } from 'lucide-react';
 import type { AccountState, Post } from '../shared/types';
@@ -265,7 +266,7 @@ export function TopicComposerPanel({account,source,inline=false,onBack,onPublish
     try{
       const prepared=await window.seekdesk.prepareImages(snapshot.content,snapshot.imageWidths);
       if(!visible()||getComposerUploadCount()>0)return;
-      const result=await window.seekdesk.writeForum(source?{kind:'edit',url:source.url,floor:source.floor,title:snapshot.title,content:prepared}:{kind:'new-topic',title:snapshot.title,content:prepared,category:snapshot.category,rank:snapshot.rank,confirmed},owner);
+      const result=await window.seekdesk.writeForum(source?{kind:'edit',url:source.url,floor:source.floor,...(source.floor==='0'?{title:snapshot.title}:{}),content:prepared}:{kind:'new-topic',title:snapshot.title,content:prepared,category:snapshot.category,rank:snapshot.rank,confirmed},owner);
       if(result.confirmation){if(visible())setConfirmation(result.confirmation);return;}
       accepted=true;acceptComposerSubmission(ticket);
       if(!current())return;
@@ -321,7 +322,7 @@ export function RankingPanel({period='realtime',showScore=false,refreshSeconds=1
   useEffect(()=>{void reload();const timer=setInterval(()=>void reload(),Math.max(60,Math.min(1800,refreshSeconds))*1000);return()=>{request.current++;clearInterval(timer);};},[reload,refreshSeconds]);
   return <section className="full-page ranking-page"><PageHeading title="NodeSeek 热榜" onBack={onBack}><IconButton label="刷新热榜" onClick={()=>void reload(true)}><RefreshCw size={18}/></IconButton></PageHeading><div className="section-tabs">{([['realtime','实时'],['daily','日榜'],['weekly','周榜']] as const).map(([id,label])=><button key={id} className={selected===id?'selected':''} onClick={()=>setSelected(id)}>{label}</button>)}</div><div className="page-scroll">{loading&&!result?<Loading/>:error&&!result?<ErrorState error={error} onRetry={()=>void reload()}/>:<>{error&&<ErrorState error={error} onRetry={()=>void reload()}/>}<div className="ranking-full">{result?.items.map(item=><RankingRow key={item.id} item={item} showScore={showScore} onClick={()=>onOpenPost(toPost(item))}/>)}{!result?.items.length&&<Empty>当前没有热榜内容</Empty>}</div><footer className="ranking-footer"><time dateTime={result?.fetchedAt}>更新 {result?.fetchedAt?new Date(result.fetchedAt).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—'}</time><span className="ranking-count">共 {result?.items.length||0} 条</span></footer></>}</div></section>;
 }
-export function RankingRow({item,showScore=false,onClick}:{item:RankingItem;showScore?:boolean;onClick:()=>void}) {return <button className="ranking-row" onClick={onClick}><span className={`ranking-position top-${item.position}`} aria-label={`第 ${item.position} 名`}>{item.position<=3&&<Flame size={13} aria-hidden="true"/>}<span>{String(item.position).padStart(2,'0')}</span></span><strong className="ranking-title">{item.title}</strong>{showScore&&item.score!==undefined&&<small className="ranking-score">{item.score}</small>}</button>;}
+export {RankingRow} from './components/RankingRow';
 
 export function RulingsDialog({member,onClose}:{member:{id:number;name:string};onClose:()=>void}) {
   const [result,setResult]=useState<Awaited<ReturnType<Window['seekdesk']['queryRulings']>>|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[retry,setRetry]=useState(0);

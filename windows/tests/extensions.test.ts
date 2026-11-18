@@ -9,6 +9,22 @@ function timers(){const pending=new Map<number,{fn:()=>void,ms:number}>();let id
 function enabledState(ids:('keywords'|'attendance'|'office'|'block')[]) {const state=defaultExtensions();state.installed.push(...ids);state.enabled.push(...ids);return state;}
 function rss(ids:string[],title='便宜 VPS'){return `<?xml version="1.0"?><rss version="2.0"><channel><title>NodeSeek</title>${ids.map(id=>`<item><title>${title}</title><link>https://www.nodeseek.com/post-${id}-1</link><author>Alice</author><description>东京 机房</description></item>`).join('')}</channel></rss>`;}
 const json=(value:unknown,init?:ResponseInit)=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'},...init});
+test('a pending keyword read survives unrelated saves and reschedules changed rules without stale hits',async()=>{
+  for(const change of ['unrelated','rules','disabled'] as const){
+    const clock=timers(),state=enabledState(['keywords']);state.watchWords='VPS';let finish!:(response:Response)=>void,calls=0;
+    const service=new ExtensionsService(state,{...clock,fetchPublic:()=>{calls++;return new Promise(resolve=>finish=resolve);}});
+    try{
+      const pending=service.pollKeywords(),next=service.getState();
+      if(change==='unrelated')next.hotSidebarCount=20;else if(change==='rules')next.watchWords='东京';else next.enabled=[];
+      await service.commitUpdate(next,async()=>{});
+      for(const [id,timer] of [...clock.pending]){clock.pending.delete(id);timer.fn();}
+      finish(new Response(rss(['901'])));await pending;
+      assert.equal(clock.pending.size,change==='disabled'?0:1);
+      assert.equal(service.getState().hits.length,change==='unrelated'?1:0);
+      if(change!=='disabled'){const [id,timer]=[...clock.pending][0];clock.pending.delete(id);timer.fn();assert.equal(calls,2);finish(new Response(rss(['902'])));await new Promise(resolve=>setTimeout(resolve,0));assert.equal(clock.pending.size,1);}
+    }finally{service.dispose();}
+  }
+});
 
 test('all eight extensions have original defaults; disabled block does not hide members',()=>{
   assert.deepEqual(defaultExtensions().installed,['hot']);assert.deepEqual(sanitizeExtensions(undefined).enabled,['hot']);

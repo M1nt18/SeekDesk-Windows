@@ -13,6 +13,12 @@ ipcRenderer.on('app:update-prepare',(_event,requestId:unknown,reason:unknown='up
 });
 
 const api: SeekDeskAPI = {
+  getProCredentials:()=>ipcRenderer.invoke('script:credentials'),
+  saveProCredential:input=>ipcRenderer.invoke('script:credential-save',input),
+  exportProPreferences:()=>ipcRenderer.invoke('script:export'),
+  getProState:()=>ipcRenderer.invoke('script:state'),
+  onProState:callback=>{const handler=(_event:Electron.IpcRendererEvent,state:Parameters<typeof callback>[0])=>callback(state);ipcRenderer.on('script:state-change',handler);return()=>ipcRenderer.removeListener('script:state-change',handler);},
+  onProCredentialsOpen:callback=>{const handler=()=>callback();ipcRenderer.on('script:credentials-open',handler);return()=>ipcRenderer.removeListener('script:credentials-open',handler);},
   getDesktopPreferences: () => ipcRenderer.invoke('app:desktop-preferences'),
   setCloseBehavior: behavior => ipcRenderer.invoke('app:close-behavior',behavior),
   setAutomaticUpdates: enabled => ipcRenderer.invoke('app:automatic-updates',enabled),
@@ -29,6 +35,7 @@ const api: SeekDeskAPI = {
   openCalculator: () => ipcRenderer.invoke('tool:calculator'),
   queryForum: request => ipcRenderer.invoke('parity:query',request),
   writeForum: (request,owner) => ipcRenderer.invoke('parity:write',request,owner),
+  retryReplyDraftCleanup:(key,owner)=>ipcRenderer.invoke('parity:reply-cleanup',key,owner),
   loadDraft: (key,owner) => ipcRenderer.invoke('parity:draft-load',key,owner),
   saveDraft: (key,value,owner) => ipcRenderer.invoke('parity:draft-save',key,value,owner),
   readConversationContacts: owner => ipcRenderer.invoke('parity:contacts-read',owner),
@@ -37,7 +44,8 @@ const api: SeekDeskAPI = {
   prepareImages: (content,widths) => ipcRenderer.invoke('media:prepare',content,widths),
   saveImage: url => ipcRenderer.invoke('media:image-save',url),
   copyImage: url => ipcRenderer.invoke('media:image-copy',url),
-  loadReaderImage: (url,width) => ipcRenderer.invoke('media:reader-image',url,width),
+  loadReaderImage: (url,width,refresh,requestId) => ipcRenderer.invoke('media:reader-image',url,width,refresh,requestId),
+  cancelReaderImage:requestId=>ipcRenderer.invoke('media:reader-cancel',requestId),
   getMediaSettings: () => ipcRenderer.invoke('media:settings'),
   setMediaSettings: input => ipcRenderer.invoke('media:save-settings',input),
   getStickers: () => ipcRenderer.invoke('media:stickers'),

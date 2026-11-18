@@ -7,6 +7,24 @@ import {ParityStore,appearanceDefaults,validateAppearance,validateDraft,validate
 import {ExtensionsService} from '../electron/extensions';
 
 async function temporary(run:(directory:string)=>Promise<void>){const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-parity-'));try{await run(directory);}finally{await fs.rm(directory,{recursive:true,force:true});}}
+test('submitted reply receipts suppress stale drafts after deletion failure and preserve later edits across restart',async()=>temporary(async directory=>{
+  let fail=false;const io={...fs,rename:async(...args:Parameters<typeof fs.rename>)=>{if(fail&&String(args[1]).endsWith('workspace-features.json')){fail=false;throw Error('delete failed');}return fs.rename(...args);}};
+  const store=new ParityStore(directory,io);await store.saveDraft(42,'reply:1',{content:'submitted',imageWidths:{}});const submitted=store.loadDraft(42,'reply:1')!;await store.markReplySubmitted(42,'reply:1',submitted,Date.now());fail=true;await assert.rejects(store.saveDraft(42,'reply:1',null),/delete failed/);
+  const restored=new ParityStore(directory);await Promise.all([restored.load(),restored.loadReceipts()]);assert.equal(restored.loadDraft(42,'reply:1'),null);assert.equal(restored.loadDraft(84,'reply:1'),null);
+  await new Promise(resolve=>setTimeout(resolve,3));await restored.saveDraft(42,'reply:1',{content:'new editable draft',imageWidths:{}});await restored.retryReplyCleanup(42,'reply:1');assert.equal(restored.loadDraft(42,'reply:1')?.content,'new editable draft');
+  const raw=await fs.readFile(path.join(directory,'reply-receipts.json'),'utf8');assert.doesNotMatch(raw,/"content"|"imageWidths"|new editable draft/);
+}));
+test('a failed receipt write remains pending and the ordinary final save flushes it before allowing exit',async()=>temporary(async directory=>{
+  let fail=true;const io={...fs,rename:async(...args:Parameters<typeof fs.rename>)=>{if(fail&&String(args[1]).endsWith('reply-receipts.json'))throw Error('receipt locked');return fs.rename(...args);}};
+  const store=new ParityStore(directory,io);await store.saveDraft(42,'reply:1',{content:'old before send'});await assert.rejects(store.markReplySubmitted(42,'reply:1',{content:'latest sent',imageWidths:{}},Date.now()),/receipt locked/);await assert.rejects(store.save(),/receipt locked/);fail=false;await store.save();
+  const restored=new ParityStore(directory);await Promise.all([restored.load(),restored.loadReceipts()]);assert.equal(restored.loadDraft(42,'reply:1'),null);
+}));
+test('failed draft deletion and contacts never leak into a later unrelated committed snapshot',async()=>temporary(async directory=>{
+  let fail=false;const io={...fs,rename:async(...args:Parameters<typeof fs.rename>)=>{if(fail){fail=false;throw Error('synthetic failed transaction');}return fs.rename(...args);}};
+  const store=new ParityStore(directory,io);await store.saveDraft(42,'reply:1',{content:'original'});fail=true;await assert.rejects(store.saveDraft(42,'reply:1',null),/transaction/);assert.equal(store.loadDraft(42,'reply:1')?.content,'original');
+  fail=true;await assert.rejects(store.rememberConversationContact(42,{id:77,name:'uncommitted'}),/transaction/);assert.deepEqual(store.readConversationContacts(42),[]);await store.commitAppearance({...appearanceDefaults,brand:'green'});
+  const restarted=new ParityStore(directory);await restarted.load();assert.equal(restarted.loadDraft(42,'reply:1')?.content,'original');assert.deepEqual(restarted.readConversationContacts(42),[]);
+}));
 test('corrupt, truncated and invalid root files remain byte-identical after every attempted save',async()=>temporary(async directory=>{
   const target=path.join(directory,'workspace-features.json');
   for(const contents of ['{"drafts":','not json','null','[]']){

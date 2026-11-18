@@ -40,7 +40,13 @@ function fixture(signedIn,url) {
   const before=installer?createHash('sha256').update(await fs.readFile(installer)).digest('hex'):undefined;
   await fs.writeFile(path.join(profile,'preferences.json'),JSON.stringify({settings:{theme:'light',fontSize:16,compact:false,restoreTabs:true,defaultSource:'rss'},workspace:{tabs:[],activeId:null}}));
   const env={...process.env,SEEKDESK_TEST:'1',SEEKDESK_USER_DATA:profile};delete env.ELECTRON_RUN_AS_NODE;delete env.SEEKDESK_DEV_URL;
-  app=await _electron.launch({executablePath:require('electron'),args:[project],env,timeout:30000});
+  let launchTarget=project;
+  if(process.env.SEEKDESK_OFFLINE==='1'){
+    launchTarget=path.join(profile,'offline-entry.cjs');
+    await fs.writeFile(launchTarget,`const {app,session}=require('electron');app.whenReady().then(()=>session.fromPartition('public-rss').protocol.handle('https',()=>new Response('<rss><channel><item><title>Offline login fixture</title><link>https://www.nodeseek.com/post-424201-1</link><description>Public synthetic summary</description></item></channel></rss>',{headers:{'content-type':'application/rss+xml'}})));globalThis.fetch=async()=>{throw Error('No live main requests in offline login QA');};require(${JSON.stringify(path.join(project,'dist-electron/electron/main.js'))});`);
+  }
+  app=await _electron.launch({executablePath:require('electron'),args:[launchTarget],env,timeout:30000});
+  if(process.env.SEEKDESK_OFFLINE==='1')await app.context().route('https://www.nodeseek.com/**',route=>route.fulfill({contentType:'text/html; charset=utf-8',body:fixture(false,route.request().url())}));
   const page=await app.firstWindow();page.on('pageerror',e=>report.errors.push(e.message));
   await page.waitForSelector('.workspace');
   await page.waitForSelector('.post-row',{timeout:30000});

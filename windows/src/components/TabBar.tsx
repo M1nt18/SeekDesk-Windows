@@ -25,11 +25,11 @@ type TabBarProps = {
 
 export function TabBar({tabs,activeId,fullPage,overviewOpen,effectiveListHidden,official,draggedTab,onOverview,onSelectOverview,onCloseOverview,onToggleList,onSelectTab,onCloseTab,onCloseAll,onReorder,onContextMenu,onOpenTabList}:TabBarProps) {
   return <div className="tab-bar">
-    <button className="tab-utility" onClick={onOverview}><ArrowLeft size={16}/><span>返回总览</span></button>
-    <button className="tab-utility list-toggle" onClick={onToggleList}>{effectiveListHidden?<PanelLeftOpen size={17}/>:<PanelLeftClose size={17}/>}<span>{effectiveListHidden?'展开列表':'收起列表'}</span></button>
+    <button className="tab-utility" aria-label="返回总览" onClick={onOverview}><ArrowLeft size={16}/><span>返回总览</span></button>
+    <button className="tab-utility list-toggle" aria-label={effectiveListHidden?'展开列表':'收起列表'} aria-expanded={!effectiveListHidden} onClick={onToggleList}>{effectiveListHidden?<PanelLeftOpen size={17}/>:<PanelLeftClose size={17}/>}<span>{effectiveListHidden?'展开列表':'收起列表'}</span></button>
     <div className="tabs" role="tablist" aria-label="已打开的帖子">
       {overviewOpen&&<div className={`overview-tab-wrap${!activeId&&!fullPage?' current':''}`}>
-        <button role="tab" aria-selected={!activeId&&!fullPage} className="overview-tab" onClick={onSelectOverview}><BookOpen size={16}/><span>阅读总览</span></button>
+        <button role="tab" aria-label="阅读总览" aria-selected={!activeId&&!fullPage} className="overview-tab" onClick={onSelectOverview}><BookOpen size={16}/><span>阅读总览</span></button>
         <IconButton label="关闭阅读总览" onClick={onCloseOverview}><X size={14}/></IconButton>
       </div>}
       {tabs.map(tab=><div key={tab.id} draggable
@@ -47,7 +47,7 @@ export function TabBar({tabs,activeId,fullPage,overviewOpen,effectiveListHidden,
     </div>
     {tabs.length>0&&<>
       <IconButton label="关闭全部帖子标签" onClick={onCloseAll}><X size={17}/></IconButton>
-      <details className="tab-menu"><summary title="已打开的帖子"><List size={18}/></summary><div className="user-menu-items" onClick={event=>{if((event.target as HTMLElement).closest('button'))event.currentTarget.closest('details')?.removeAttribute('open');}}>{tabs.map(tab=><button key={tab.id} onClick={()=>onOpenTabList(tab.id)}>{tab.title}</button>)}</div></details>
+      <details className="tab-menu"><summary title="已打开的帖子" aria-label="已打开的帖子"><List size={18}/></summary><div className="user-menu-items" onClick={event=>{if((event.target as HTMLElement).closest('button'))event.currentTarget.closest('details')?.removeAttribute('open');}}>{tabs.map(tab=><button key={tab.id} onClick={()=>onOpenTabList(tab.id)}>{tab.title}</button>)}</div></details>
     </>}
   </div>;
 }

@@ -112,13 +112,13 @@ async function launch() {
           return json({ success: true, detail: { member_id: 910001, member_name: '公开示例作者', rank: 1, roles: [], followed: false } });
         }
         if (url.pathname.startsWith('/api/')) return json({ success: true, data: [], items: [] });
-        return new Response(html(url.pathname.startsWith('/post-') ? thread : listing), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+        return new Response(html(url.pathname.startsWith('/post-') ? (state.privatePost ? '<main>本帖已经被用户设为私有，您没有阅读权限</main>' : thread) : listing), { headers: { 'content-type': 'text/html; charset=utf-8' } });
       }
       // All other HTTPS requests are stopped in memory, never sent to a host.
       state.unexpected++;
       return new Response('No external network in release QA', { status: 404 });
     };
-    for (const partition of [undefined, 'persist:nodeseek', 'public-rss', 'persist:calculator']) {
+    for (const partition of [undefined, 'persist:nodeseek', 'public-rss', 'public-media', 'persist:calculator']) {
       const target = partition ? session.fromPartition(partition) : session.defaultSession;
       target.protocol.handle('https', route);
       target.protocol.handle('http', route);
@@ -296,6 +296,17 @@ async function establishGuest() {
   assert.equal(nativeImage.reduced, true);
   assert.ok(nativeImage.originalWidth > nativeImage.width && nativeImage.bytes > 100);
   check('Bundled Sharp native module decodes, resizes and encodes a public HTTPS fixture image', nativeImage);
+
+  await app.evaluate(()=>{globalThis.__releaseRuntime.privatePost=true;});
+  await page.getByRole('button',{name:'刷新当前帖子',exact:true}).click();
+  await page.getByText('本帖已经被用户设为私有，您没有阅读权限',{exact:true}).waitFor();
+  assert.equal(await page.locator('.reader-error, .thread-heading, .comment, .thread-restriction').count(),0);
+  assert.equal(await page.getByRole('button',{name:'写回复',exact:true}).count(),0);
+  await capture('release-private-thread.png');
+  check('Actual packaged private-post parser shows exactly one permission notice with no RSS error, author header, comments or reply button');
+  await app.evaluate(()=>{globalThis.__releaseRuntime.privatePost=false;});
+  await page.getByRole('button',{name:'刷新当前帖子',exact:true}).click();
+  await page.getByTestId('reader-content').first().waitFor();
 
   // Persist only harmless test-created values, through production UI and IPC.
   await page.getByTestId('settings-button').click();

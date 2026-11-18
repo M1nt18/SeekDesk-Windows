@@ -1,0 +1,309 @@
+{
+  "date": "2026-11-18",
+  "scope": "Synthetic isolated samples; anonymous public image GET only; no existing profile or real forum writes.",
+  "before": {
+    "scope": "Synthetic single long-page HTML in the real renderer, no images/network/writes; elapsed includes IPC and React, not a public-site SLA.",
+    "samples": [
+      {
+        "floors": 100,
+        "visibleMs": 92,
+        "frame": {
+          "p95Ms": 25,
+          "maximumMs": 175.1,
+          "nodes": 4059
+        },
+        "memory": [
+          {
+            "type": "Browser",
+            "workingSetMB": 165,
+            "peakMB": 168
+          },
+          {
+            "type": "GPU",
+            "workingSetMB": 159,
+            "peakMB": 161
+          },
+          {
+            "type": "Utility",
+            "workingSetMB": 100,
+            "peakMB": 103
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 191,
+            "peakMB": 191
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 107,
+            "peakMB": 107
+          }
+        ]
+      },
+      {
+        "floors": 500,
+        "visibleMs": 265,
+        "frame": {
+          "p95Ms": 13.5,
+          "maximumMs": 77.7,
+          "nodes": 17673
+        },
+        "memory": [
+          {
+            "type": "Browser",
+            "workingSetMB": 166,
+            "peakMB": 168
+          },
+          {
+            "type": "GPU",
+            "workingSetMB": 161,
+            "peakMB": 168
+          },
+          {
+            "type": "Utility",
+            "workingSetMB": 100,
+            "peakMB": 103
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 314,
+            "peakMB": 314
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 107,
+            "peakMB": 107
+          }
+        ]
+      },
+      {
+        "floors": 1000,
+        "visibleMs": 448,
+        "frame": {
+          "p95Ms": 20.2,
+          "maximumMs": 107.8,
+          "nodes": 34687
+        },
+        "memory": [
+          {
+            "type": "Browser",
+            "workingSetMB": 167,
+            "peakMB": 169
+          },
+          {
+            "type": "GPU",
+            "workingSetMB": 163,
+            "peakMB": 168
+          },
+          {
+            "type": "Utility",
+            "workingSetMB": 100,
+            "peakMB": 103
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 521,
+            "peakMB": 521
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 107,
+            "peakMB": 107
+          }
+        ]
+      }
+    ]
+  },
+  "after": {
+    "scope": "Synthetic single long-page HTML in the real renderer, no images/network/writes; elapsed includes IPC and React, not a public-site SLA.",
+    "samples": [
+      {
+        "floors": 100,
+        "visibleMs": 97,
+        "frame": {
+          "p95Ms": 13.7,
+          "maximumMs": 171.9,
+          "nodes": 4059
+        },
+        "memory": [
+          {
+            "type": "Browser",
+            "workingSetMB": 163,
+            "peakMB": 165
+          },
+          {
+            "type": "GPU",
+            "workingSetMB": 159,
+            "peakMB": 160
+          },
+          {
+            "type": "Utility",
+            "workingSetMB": 100,
+            "peakMB": 102
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 194,
+            "peakMB": 194
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 107,
+            "peakMB": 107
+          }
+        ]
+      },
+      {
+        "floors": 500,
+        "visibleMs": 286,
+        "frame": {
+          "p95Ms": 15.7,
+          "maximumMs": 49.7,
+          "nodes": 17673
+        },
+        "memory": [
+          {
+            "type": "Browser",
+            "workingSetMB": 164,
+            "peakMB": 165
+          },
+          {
+            "type": "GPU",
+            "workingSetMB": 160,
+            "peakMB": 168
+          },
+          {
+            "type": "Utility",
+            "workingSetMB": 100,
+            "peakMB": 102
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 295,
+            "peakMB": 305
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 107,
+            "peakMB": 107
+          }
+        ]
+      },
+      {
+        "floors": 1000,
+        "visibleMs": 479,
+        "frame": {
+          "p95Ms": 17.3,
+          "maximumMs": 94.4,
+          "nodes": 34687
+        },
+        "memory": [
+          {
+            "type": "Browser",
+            "workingSetMB": 165,
+            "peakMB": 167
+          },
+          {
+            "type": "GPU",
+            "workingSetMB": 163,
+            "peakMB": 168
+          },
+          {
+            "type": "Utility",
+            "workingSetMB": 100,
+            "peakMB": 102
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 523,
+            "peakMB": 523
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 107,
+            "peakMB": 107
+          }
+        ]
+      }
+    ]
+  },
+  "images": {
+    "scope": "25 synthetic 800×1600 PNGs in the real renderer, isolated local IPC, no live network/writes; viewport image count and OS memory samples.",
+    "samples": [
+      {
+        "floors": 100,
+        "images": 25,
+        "visibleMs": 105,
+        "frame": {
+          "maximumImages": 1,
+          "p95Ms": 18.3,
+          "maximumMs": 170.5,
+          "nodes": 4254
+        },
+        "memory": [
+          {
+            "type": "Browser",
+            "workingSetMB": 185,
+            "peakMB": 195
+          },
+          {
+            "type": "GPU",
+            "workingSetMB": 196,
+            "peakMB": 197
+          },
+          {
+            "type": "Utility",
+            "workingSetMB": 115,
+            "peakMB": 118
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 218,
+            "peakMB": 225
+          },
+          {
+            "type": "Tab",
+            "workingSetMB": 120,
+            "peakMB": 120
+          }
+        ]
+      }
+    ]
+  },
+  "media": {
+    "scope": "Synthetic random 960×1920 PNGs through the actual compiled main-service code and Sharp, Node RSS sampled every 10 ms; no renderer/network, not total desktop RAM.",
+    "images": 24,
+    "duplicateRequests": 8,
+    "networkCalls": 24,
+    "maxConcurrentDecodes": 2,
+    "elapsedMs": 3573,
+    "peakRSSMB": 267,
+    "cache": {
+      "bytes": 30836745,
+      "cached": 15,
+      "pending": 0,
+      "active": 0,
+      "waiting": 0
+    }
+  },
+  "publicImage": [
+    {
+      "host": "tcpquality.ibsgss.uk",
+      "width": 1199,
+      "height": 1120,
+      "originalWidth": 1680,
+      "originalHeight": 1569,
+      "ms": 1495,
+      "pixelsReadable": true
+    },
+    {
+      "host": "tcpquality.ibsgss.uk",
+      "width": 1199,
+      "height": 1120,
+      "originalWidth": 1680,
+      "originalHeight": 1569,
+      "ms": 1207,
+      "pixelsReadable": true
+    }
+  ]
+}

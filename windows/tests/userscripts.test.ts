@@ -5,17 +5,29 @@ import path from 'node:path';
 import os from 'node:os';
 import fsp from 'node:fs/promises';
 import {JSDOM,VirtualConsole} from 'jsdom';
-import {buildUserscriptRuntime,initialUserscriptValues,validateUserscriptRequest,UserscriptHost} from '../electron/userscripts';
+import {buildUserscriptRuntime,initialUserscriptValues,validateUserscriptRequest,UserscriptHost,publicUserscriptValues} from '../electron/userscripts';
 import {createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
 
 function protectedFixture(directory:string,options:Partial<ConstructorParameters<typeof UserscriptHost>[0]>={}){
-  const frame={url:'https://www.nodeseek.com/'},contents={isDestroyed:()=>false,mainFrame:frame},handlers=new Map<string,(...args:any[])=>any>();
+  const frame={url:'https://www.nodeseek.com/'},contents={isDestroyed:()=>false,mainFrame:frame,executeJavaScriptInIsolatedWorld:async()=>({})},handlers=new Map<string,(...args:any[])=>any>();
   const key=randomBytes(32);
   const protection={isEncryptionAvailable:()=>true,encryptString:(value:string)=>{const iv=randomBytes(12),cipher=createCipheriv('aes-256-gcm',key,iv),bytes=Buffer.concat([cipher.update(value,'utf8'),cipher.final()]);return Buffer.concat([iv,cipher.getAuthTag(),bytes]);},decryptString:(value:Buffer)=>{const cipher=createDecipheriv('aes-256-gcm',key,value.subarray(0,12));cipher.setAuthTag(value.subarray(12,28));return Buffer.concat([cipher.update(value.subarray(28)),cipher.final()]).toString('utf8');}};
   const host=new UserscriptHost({storageDirectory:directory,getOfficialContents:()=>contents as any,onOpen:async()=>{},storageProtection:protection,...options});
   host.registerIPC({handle:(name:string,callback:any)=>handlers.set(name,callback)} as any);
-  return {host,protection,set:(name:string,value:unknown)=>handlers.get('userscript:set')!({sender:contents,senderFrame:frame},name,value),remove:(name:string)=>handlers.get('userscript:remove')!({sender:contents,senderFrame:frame},name)};
+  return {host,protection,request:(request:unknown)=>handlers.get('userscript:request')!({sender:contents,senderFrame:frame},request),set:(name:string,value:unknown)=>handlers.get('userscript:set')!({sender:contents,senderFrame:frame},name,value),remove:(name:string)=>handlers.get('userscript:remove')!({sender:contents,senderFrame:frame},name)};
 }
+test('only trusted credential edits change keys, fixed host operations bind them in main, and exports omit them',async()=>{
+  const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'seekdesk-pro-boundary-')),previousFetch=globalThis.fetch;
+  try{
+    const fixture=protectedFixture(directory);await fixture.host.load();await fixture.host.saveCredential({service:'ai',apiKey:'synthetic-bound-ai-secret'});await fixture.host.saveCredential({service:'nodeimage',apiKey:'synthetic-bound-image-secret'});
+    await fixture.set('settings',{ai_comment:{api_key:'attacker-replacement',model:'fixture'},image_upload:{api_key:''}});await fixture.remove('settings');
+    assert.deepEqual(fixture.host.credentials(),{aiConfigured:true,nodeimageConfigured:true});assert.doesNotMatch(fixture.host.exportPreferences(),/synthetic-bound|attacker-replacement/);
+    let calls=0;globalThis.fetch=async(input,init)=>{calls++;assert.equal(String(input),'https://api.openai.com/v1/chat/completions');assert.equal(init?.credentials,'omit');assert.equal(init?.redirect,'error');assert.equal((init?.headers as Record<string,string>).Authorization,'Bearer synthetic-bound-ai-secret');return new Response(JSON.stringify({echo:'synthetic-bound-ai-secret'}),{headers:{'Content-Type':'application/json'}});};
+    const result=await fixture.request({url:'https://api.openai.com/v1/chat/completions',method:'POST',headers:{Authorization:'Bearer public-placeholder'},data:'{}'});assert.equal(calls,1);assert.doesNotMatch(result.responseText,/synthetic-bound/);
+    for(const url of ['https://api.openai.com/v1/files','https://api.openai.com/v1/chat/completions?proxy=true','https://api.nodeimage.com/api/user/api-key'])await assert.rejects(fixture.request({url,method:'POST'}),/仅支持/);
+    assert.equal(calls,1);await fixture.host.saveCredential({service:'ai',clear:true});assert.equal(fixture.host.credentials().aiConfigured,false);
+  }finally{globalThis.fetch=previousFetch;await fsp.rm(directory,{recursive:true,force:true});}
+});
 test('Pro API credentials migrate and round-trip encrypted while ordinary preferences remain readable',async()=>{
   const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'seekdesk-gm-crypto-')),target=path.join(directory,'nodeseek-pro.json');
   try{
@@ -33,7 +45,7 @@ test('unavailable protection rejects new credentials without committing them or 
   const directory=await fsp.mkdtemp(path.join(os.tmpdir(),'seekdesk-gm-unavailable-')),target=path.join(directory,'nodeseek-pro.json');
   try{
     const fixture=protectedFixture(directory,{storageProtection:undefined});await fixture.host.load();await fixture.set('probe','retained');const original=await fsp.readFile(target,'utf8');
-    await assert.rejects(fixture.set('settings',{ai_comment:{api_key:'fixture-secret'}}),/未保存/);assert.equal(await fsp.readFile(target,'utf8'),original);
+    await assert.rejects(fixture.host.saveCredential({service:'ai',apiKey:'fixture-secret'}),/未保存/);assert.equal(await fsp.readFile(target,'utf8'),original);
     await fixture.set('another',true);assert.doesNotMatch(await fsp.readFile(target,'utf8'),/fixture-secret/);
   }finally{await fsp.rm(directory,{recursive:true,force:true});}
 });
@@ -106,9 +118,10 @@ test('pinned NodeSeek Pro executes menus and settings against shared DOM without
   win.matchMedia=()=>({matches:false,addEventListener(){},removeEventListener(){}});
   win.ResizeObserver=class{observe(){}disconnect(){}};
   win.fetch=async()=>({ok:true,status:200,json:async()=>({}),text:async()=>''});
-  win.__seekdeskGM={set:async()=>{},remove:async()=>{},open:async()=>{},request:async()=>({status:200,response:{}})};
+  win.__seekdeskGM={set:async(_key:string,value:unknown)=>value,remove:async()=>{},open:async()=>{},request:async()=>({status:200,response:{}})};
   const literal="literal $& $` $' __CONFIG__";
-  const source=buildUserscriptRuntime({values:{settings:{testValue:literal}},config:{user:null,postData:null},assets});
+  const source=buildUserscriptRuntime({values:{settings:{testValue:literal,ai_comment:{api_key:'synthetic-do-not-expose-ai'},image_upload:{api_key:'synthetic-do-not-expose-image'}}},config:{user:null,postData:null},assets});
+  assert.doesNotMatch(source,/synthetic-do-not-expose/);
   const result=win.eval(source);
   await new Promise(resolve=>setTimeout(resolve,40));
   assert.equal(result.status,'running');
@@ -124,5 +137,17 @@ test('pinned NodeSeek Pro executes menus and settings against shared DOM without
   assert.ok(advanced,'Original advanced settings menu must be registered');
   advanced.click();
   assert.ok(page.window.document.querySelector('.layui-layer'),'Original Layui settings dialog renders');
+  await new Promise(resolve=>setTimeout(resolve,10));
+  assert.doesNotMatch(page.window.document.documentElement.outerHTML,/synthetic-do-not-expose/);
+  const credentialInputs=[...page.window.document.querySelectorAll<HTMLInputElement>('input')].filter(input=>/api[_-]?key|nsx-ai-key/.test(input.name||input.id));
+  assert.ok(credentialInputs.length>0);assert.ok(credentialInputs.every(input=>input.disabled&&input.readOnly&&!input.value.includes('synthetic')));
+  let release!:(value:unknown)=>void,requested:unknown;
+  win.__seekdeskGM.set=async(_key:string,value:unknown)=>{requested=value;return new Promise(resolve=>release=resolve);};
+  const save=page.window.document.querySelector<HTMLAnchorElement>('.layui-layer-btn0')!;save.click();await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal([...page.window.document.querySelectorAll('.layui-layer-msg')].some(node=>node.textContent?.includes('已保存')),false);
+  assert.equal(page.window.document.querySelector('.layui-layer-btn0')!==null,true,'The form must stay open before persistence acknowledges');
+  win.__seekdeskGM.set=async(_key:string,value:unknown)=>value;release(requested);
+  for(let i=0;i<50;i++){if([...page.window.document.querySelectorAll('.layui-layer-msg')].some(node=>node.textContent?.includes('已保存')))break;await new Promise(resolve=>setTimeout(resolve,10));}
+  assert.ok([...page.window.document.querySelectorAll('.layui-layer-msg')].some(node=>node.textContent?.includes('已保存')));
   page.window.close();
 });

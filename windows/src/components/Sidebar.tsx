@@ -1,13 +1,14 @@
 import { ArrowUpRight, ChevronRight, Compass, Diamond, Flame, Gift, Globe2, Image, Link, List, LoaderCircle, LockKeyhole, Mail, Monitor, Plus, Puzzle, Search, Settings2, ShieldCheck, UserPlus, UserRound } from 'lucide-react';
 import type { Post } from '../../shared/types';
 import type { ExtensionsState, RankingPeriod, RankingResult } from '../../shared/parity';
-import { RankingRow } from '../parity-panels';
+import { RankingRow } from './RankingRow';
 import { boards } from '../boards';
 import { IconButton } from './shared-ui';
 
 type ForumView = 'forum'|'mine'|'space'|'extensions'|'notifications'|'compose'|'ranking'|'friends';
 
 type SidebarProps = {
+  updateAvailable?:boolean;
   view:ForumView;
   category:string;
   searchActive:boolean;
@@ -33,7 +34,7 @@ type SidebarProps = {
   onOpenPost:(post:Post)=>void;
 };
 
-export function Sidebar({view,category,searchActive,settingsOpen,sidebarGroup,onSidebarGroup,extensions,rankingPeriod,onRankingPeriod,rankingLoading,ranking,rankingError,onLoadRanking,onCompose,onBoard,onNavigate,onSearch,onNotifications,onOfficial,onBossKey,onMedia,onSettings,onOpenPost}:SidebarProps) {
+export function Sidebar({updateAvailable=false,view,category,searchActive,settingsOpen,sidebarGroup,onSidebarGroup,extensions,rankingPeriod,onRankingPeriod,rankingLoading,ranking,rankingError,onLoadRanking,onCompose,onBoard,onNavigate,onSearch,onNotifications,onOfficial,onBossKey,onMedia,onSettings,onOpenPost}:SidebarProps) {
   const toggleGroup=(group:'boards'|'shortcuts'|'ranking')=>onSidebarGroup(sidebarGroup===group?null:group);
   return <aside className="sidebar" aria-label="论坛导航">
     <button className="new-topic-button" data-testid="new-topic-button" onClick={onCompose}><Plus size={22}/>发帖</button>
@@ -64,7 +65,7 @@ export function Sidebar({view,category,searchActive,settingsOpen,sidebarGroup,on
       <button className={`board-link${view==='friends'?' selected':''}`} onClick={()=>onNavigate('friends')}><Link size={18}/><span>友情链接</span></button>
       <button className={`board-link${view==='mine'?' selected':''}`} onClick={()=>onNavigate('mine')}><UserRound size={18}/><span>我的</span></button>
       <button className={`board-link${view==='extensions'?' selected':''}`} onClick={()=>onNavigate('extensions')}><Puzzle size={18}/><span>扩展中心</span>{extensions.unread>0&&<span className="sidebar-badge">{extensions.unread}</span>}</button>
-      <button data-testid="settings-button" className={`board-link${settingsOpen?' selected':''}`} onClick={onSettings}><Settings2 size={18}/><span>设置</span></button>
+      <button data-testid="settings-button" aria-label="设置" aria-description={updateAvailable?'有可用更新，请打开关于页':undefined} className={`board-link${settingsOpen?' selected':''}`} onClick={onSettings}><Settings2 size={18}/><span>设置</span>{updateAvailable&&<span className="update-notice-dot" data-testid="settings-update-dot" aria-hidden="true"/>}</button>
     </div>
   </aside>;
 }

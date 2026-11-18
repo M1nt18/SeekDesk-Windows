@@ -21,7 +21,7 @@ async function until(predicate,label,timeout=10000){const deadline=Date.now()+ti
 async function waitForCall(postId,number,owner=42){await until(async()=>await countCalls(postId,number,owner)>0,'Expected automatic page request');}
 async function release(postId,number,owner=42){await app.evaluate((_electron,key)=>global.__autoload.release(key),key(postId,number,owner));}
 async function hold(postId,number,owner=42){await app.evaluate((_electron,key)=>global.__autoload.holds.add(key),key(postId,number,owner));}
-async function scrollToEnd(){await reader().evaluate(node=>{node.scrollTop=node.scrollHeight-node.clientHeight-200;});}
+async function scrollToEnd(){await reader().evaluate(node=>{node.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:1}));node.scrollTop=node.scrollHeight-node.clientHeight-200;});}
 async function saveAnchor(){return reader().evaluate(node=>{
   const bounds=node.getBoundingClientRect(),point=document.elementFromPoint(bounds.left+bounds.width/2,bounds.top+Math.min(40,bounds.height/3));
   const article=point?.closest('article.comment[data-floor]')||[...node.querySelectorAll('article.comment[data-floor]')].find(item=>item.getBoundingClientRect().bottom>bounds.top+10);
@@ -176,7 +176,11 @@ async function screenshot(name){await page.screenshot({path:path.join(output,nam
   await page.getByRole('button',{name:'继续加载',exact:true}).click();await waitForCall('303',4,43);
   check('Author-only reading pauses after two pages with no new visible replies and resumes only from Continue');
 
+  const filterReadsBefore=(await calls()).filter(row=>row.postId==='303').length;
   await page.getByRole('button',{name:'只看楼主',exact:true}).click();
+  await until(async()=>await page.getByRole('button',{name:'继续加载',exact:true}).count()===0,'Turning off the filter did not clear its empty-page pause');
+  await scrollToEnd();await until(async()=>(await calls()).filter(row=>row.postId==='303').length>filterReadsBefore,'Disabling author-only did not resume continuation');
+  check('Turning off author-only clears the old filter pause and allows scrolling to resume without Continue');
   await page.getByTestId('post-row').nth(3).click();await page.locator('.thread-heading h1').getByText(titles[404],{exact:true}).waitFor();
   await scrollToEnd();await page.getByText('连续两页没有新增可见评论，已暂停自动加载',{exact:false}).waitFor();
   assert.equal(await countCalls('404',2,43),1);assert.equal(await countCalls('404',3,43),1);

@@ -276,3 +276,14 @@ test('combined thread extraction keeps the body when optional profile reads fail
     assert.equal(result.comments[0].authorId,42);assert.equal(result.comments[0].level,undefined);assert.match(result.comments[0].html,/Readable body/);
   }finally{page.window.close();}
 });
+
+test('private access notices are explicit results while quoted or hidden notice text cannot revoke a readable thread',()=>{
+  const message='本帖已经被用户设为私有，您没有阅读权限';
+  const denied=new JSDOM('<main id="nsk-body-left"><div>'+message+'</div></main>',{url:'https://www.nodeseek.com/post-123-1',runScripts:'outside-only'});
+  try{const result=denied.window.eval(extractThreadScript);assert.equal(result.accessStatus,'private');assert.equal(result.comments.length,0);assert.equal(result.replyRestriction,message);}finally{denied.window.close();}
+  const hiddenOnly=new JSDOM('<main id="nsk-body-left"><div hidden>'+message+'</div></main>',{url:'https://www.nodeseek.com/post-123-1',runScripts:'outside-only'});try{assert.equal(hiddenOnly.window.eval(extractThreadScript),null);}finally{hiddenOnly.window.close();}
+  for(const extra of ['<div style="display:none">'+message+'</div>','']){
+    const page=new JSDOM('<main id="nsk-body-left">'+extra+'<div class="nsk-post-wrapper"><h1><a class="post-title-link">'+message+'</a></h1><div class="content-item" id="0"><div class="nsk-content-meta-info"><a class="author-name" href="/space/42">Owner</a></div><div class="post-content"><p>'+message+'</p><p>Readable content</p></div></div></div></main>',{url:'https://www.nodeseek.com/post-123-1',runScripts:'outside-only'});
+    try{const result=page.window.eval(extractThreadScript);assert.equal(result.accessStatus,undefined);assert.match(result.comments[0].html,/Readable content/);}finally{page.window.close();}
+  }
+});

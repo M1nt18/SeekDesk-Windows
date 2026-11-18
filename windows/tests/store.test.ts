@@ -4,6 +4,16 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {Store,defaults,validateSettings,validateWorkspace,validateBlockedUsers} from '../electron/store';
+test('preferences parse/access failures preserve the original through settings, workspace and exit saves',async()=>{
+  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-preference-fault-')),target=path.join(directory,'preferences.json');
+  try{for(const contents of ['{"settings":{"theme":"dark"','null','[]']){
+    await fs.writeFile(target,contents);const store=new Store(directory);await store.load();assert.match(store.storageWarning||'',/原文件已保留/);
+    for(const save of [()=>store.save(),()=>store.commitSettings(defaults),()=>store.commitWorkspace({tabs:[],activeId:null}),()=>store.commitBlockedUsers([42])])await assert.rejects(save,/无法读取/);
+    assert.equal(await fs.readFile(target,'utf8'),contents);
+  }
+  const store=new Store(directory,{...fs,readFile:async()=>{throw Object.assign(Error('denied'),{code:'EACCES'});}} as typeof fs);await store.load();await assert.rejects(store.save(),/无法读取/);
+  }finally{await fs.rm(directory,{recursive:true,force:true});}
+});
 
 test('stream reading anchors preserve the exact in-floor offset across a restart',async()=>{
   const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-reading-anchor-'));

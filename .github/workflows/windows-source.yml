@@ -39,3 +39,10 @@ jobs:
         run: npm run test:reading-performance && npm run test:reply-refresh && node scripts/thread-autoload-smoke.cjs
       - name: Isolated Pro runtime and Windows credential protection
         run: node tests/userscript-electron-run.cjs
+
+      - name: Review boundaries, notices and navigation
+        run: npm run test:review
+      - name: Full application with isolated forum fixtures
+        env:
+          SEEKDESK_OFFLINE: '1'
+        run: npm run test:app

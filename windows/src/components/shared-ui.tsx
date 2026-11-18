@@ -1,3 +1,4 @@
+import {useModalLayer} from '../useModalLayer';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CircleAlert, LoaderCircle, UserRound, X } from 'lucide-react';
 
@@ -15,10 +16,10 @@ export function Avatar({name='',src,id,large=false}:{name?:string;src?:string;id
 export function Loading({label='正在读取…'}:{label?:string}) {return <div className="panel-state" role="status"><LoaderCircle className="spin" size={24}/><span>{label}</span></div>;}
 export function ErrorState({error,onRetry}:{error:string;onRetry?:()=>void}) {return <div className="panel-state error" role="alert"><CircleAlert size={26}/><p>{error}</p>{onRetry&&<button className="secondary-button" onClick={onRetry}>重新读取</button>}</div>;}
 export function Empty({children}:{children:ReactNode}) {return <div className="panel-state muted">{children}</div>;}
-export function Modal({title,children,onClose,wide=false}:{title:string;children:ReactNode;onClose:()=>void;wide?:boolean}) {
+export function Modal({title,children,onClose,wide=false,role='dialog'}:{title:string;children:ReactNode;onClose:()=>void;wide?:boolean;role?:'dialog'|'alertdialog'}) {
   const panel=useRef<HTMLElement>(null),close=useRef(onClose);close.current=onClose;
-  useEffect(()=>{const before=document.activeElement as HTMLElement|null;panel.current?.querySelector<HTMLElement>('[autofocus],input,textarea,select,button')?.focus();const key=(event:KeyboardEvent)=>{const dialogs=[...document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')];if(event.defaultPrevented||dialogs.at(-1)!==panel.current)return;if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='w'){event.preventDefault();event.stopPropagation();close.current();return;}if(event.key==='Escape'){event.preventDefault();close.current();}if(event.key==='Tab'){const nodes=[...panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),textarea:not(:disabled),select:not(:disabled),[tabindex="0"]')||[]],first=nodes[0],last=nodes[nodes.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}}};window.addEventListener('keydown',key);return()=>{window.removeEventListener('keydown',key);before?.focus();};},[]);
-  return <div className="dialog-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}><section ref={panel} className={`parity-dialog${wide?' wide':''}`} role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><IconButton label="关闭" onClick={onClose}><X size={19}/></IconButton></header>{children}</section></div>;
+  useModalLayer(panel,onClose);
+  return <div className="dialog-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}><section ref={panel} className={`parity-dialog${wide?' wide':''}`} role={role} aria-modal="true" aria-label={title}><header><h2>{title}</h2><IconButton label="关闭" onClick={onClose}><X size={19}/></IconButton></header>{children}</section></div>;
 }
 export const errorMessage=(error:unknown)=>error instanceof Error?error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/,''):'操作未完成，请重试。';
 export function dateLabel(value:string,full=false) {

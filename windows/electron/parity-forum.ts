@@ -41,7 +41,7 @@ export function validateWriteRequest(input:unknown):ForumWriteRequest{
       if(typeof row.rank!=='number'||!Number.isInteger(row.rank)||row.rank<0||row.rank>255)throw new Error('阅读等级无效');
       return {kind:row.kind,title:string(row.title,500,'标题'),content:string(row.content,200000,'正文'),category:category(row.category),rank:row.rank,confirmed:row.confirmed===true};
     }
-    case 'edit':return {kind:row.kind,url:normalizePostUrl(row.url),floor:floor(row.floor),content:string(row.content,200000,'正文'),...(row.title===undefined?{}:{title:string(row.title,500,'标题')})};
+    case 'edit':{const target=floor(row.floor);return {kind:row.kind,url:normalizePostUrl(row.url),floor:target,content:string(row.content,200000,'正文'),...(target!=='0'||row.title===undefined?{}:{title:string(row.title,500,'标题')})};}
     case 'profile':return {kind:row.kind,original:introduction(row.original),draft:introduction(row.draft)};
     case 'mark-read':return {kind:row.kind,category:section(row.category,['mentions','replies','messages']) as 'mentions'|'replies'|'messages',id:positive(row.id,'通知编号')};
     case 'attendance':return {kind:row.kind,mode:section(row.mode,['fixed','random']) as 'fixed'|'random'};

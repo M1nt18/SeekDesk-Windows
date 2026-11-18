@@ -7,4 +7,5 @@ contextBridge.exposeInIsolatedWorld(1004,'__seekdeskGM',{
   remove: (key:string) => ipcRenderer.invoke('userscript:remove',key),
   request: (request:unknown) => ipcRenderer.invoke('userscript:request',request),
   open: (url:string) => ipcRenderer.invoke('userscript:open',url),
+  credentials: () => ipcRenderer.invoke('userscript:credentials'),
 });

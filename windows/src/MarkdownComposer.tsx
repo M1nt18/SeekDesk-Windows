@@ -54,7 +54,7 @@ export function MarkdownComposer({value,onChange,onSubmit,disabled=false,busy=fa
     if(event.nativeEvent.isComposing||event.keyCode===229)return;
     if((event.ctrlKey||event.metaKey)&&!event.altKey){const key=event.key.toLowerCase();if(['b','i','k','z','y'].includes(key)){event.preventDefault();remember();if(key==='b')command('bold');else if(key==='i')command('italic');else if(key==='k')command('link');else undo(key==='y'||event.shiftKey);return;}}
     if(event.key==='Enter'&&!event.shiftKey&&!event.altKey&&onSubmit&&!locked&&value.trim()&&(sendShortcut==='enter'&&!event.ctrlKey&&!event.metaKey||sendShortcut==='ctrl-enter'&&(event.ctrlKey||event.metaKey))){event.preventDefault();onSubmit();}
-    if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey){event.preventDefault();remember();insert('    ');}
+    if(event.altKey&&!event.ctrlKey&&!event.metaKey&&event.key===']'){event.preventDefault();remember();insert('    ');}
   };
   return <div className={'md-composer'+(expanded?' md-expanded':'')}>
     <div className="md-toolbar"><div className="md-toolbar-main">

@@ -10,6 +10,23 @@ const encryption={isEncryptionAvailable:()=>true,encryptString:(value:string)=>B
 function deferred(){let resolve!:()=>void;const promise=new Promise<void>(done=>{resolve=done;});return {promise,resolve};}
 async function fixture(run:(directory:string)=>Promise<void>){const directory=await fs.mkdtemp(path.join(os.tmpdir(),'seekdesk-media-settings-'));try{await run(directory);}finally{await fs.rm(directory,{recursive:true,force:true});}}
 const read=(directory:string)=>fs.readFile(path.join(directory,'media.json'),'utf8').then(JSON.parse);
+test('unreadable media config rejects writes while undecryptable keys survive unrelated changes',async()=>fixture(async directory=>{
+  const target=path.join(directory,'media.json'),cipher='opaque-ciphertext',original=JSON.stringify({key:cipher,width:640,stickers:[]});
+  await fs.writeFile(target,original);
+  for(const protectedAvailable of [true,false]){
+    const media=new MediaService(directory,()=>null,{encryption:{...encryption,isEncryptionAvailable:()=>protectedAvailable,decryptString:()=>{throw Error('synthetic decrypt failure');}}});await media.load();assert.match(media.settings().credentialError||'',/密文已保留/);
+    await media.setSettings({defaultImageWidth:320});assert.equal((await read(directory)).key,cipher);await media.setSettings({clearKey:true});assert.equal((await read(directory)).key,undefined);await fs.writeFile(target,original);
+  }
+  await fs.writeFile(target,'{"key":');const media=new MediaService(directory,()=>null,{encryption});await media.load();assert.match(media.storageWarning||'',/原文件已保留/);await assert.rejects(media.setSettings({defaultImageWidth:800}),/无法读取/);assert.equal(await fs.readFile(target,'utf8'),'{"key":');
+}));
+test('anonymous image redirects validate every destination and never send cookies or follow private URLs',async()=>fixture(async directory=>{
+  const png=await sharp({create:{width:3,height:4,channels:3,background:'#123456'}}).png().toBuffer();let calls:string[]=[];
+  const media=new MediaService(directory,()=>null,{encryption,fetchImage:async(input,options)=>{calls.push(String(input));assert.equal(options?.credentials,'omit');assert.equal(options?.redirect,'manual');return calls.length===1?new Response(null,{status:302,headers:{Location:'https://93.184.215.14/final.png'}}):new Response(png,{headers:{'content-type':'image/png'}});}});
+  const image=await media.readerImage('https://93.184.215.14/original.png',1200);assert.equal(image.width,3);assert.equal(calls.length,2);
+  for(const target of ['http://93.184.215.14/image.png','https://127.0.0.1/private','https://user:pass@93.184.215.14/image.png']){
+    calls=[];const blocked=new MediaService(directory,()=>null,{encryption,fetchImage:async(input)=>{calls.push(String(input));return new Response(null,{status:302,headers:{Location:target}});}});await assert.rejects(blocked.readerImage('https://93.184.215.14/original.png',1200));assert.equal(calls.length,1);
+  }
+}));
 
 test('a failed media settings replacement preserves the committed width and encrypted key',async()=>fixture(async directory=>{
   let fail=false;

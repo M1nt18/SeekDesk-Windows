@@ -1,0 +1,3 @@
+import {Flame} from 'lucide-react';
+import type {RankingItem} from '../../shared/parity';
+export function RankingRow({item,showScore=false,onClick}:{item:RankingItem;showScore?:boolean;onClick:()=>void}) {return <button className="ranking-row" onClick={onClick}><span className={`ranking-position top-${item.position}`} aria-label={`第 ${item.position} 名`}>{item.position<=3&&<Flame size={13} aria-hidden="true"/>}<span>{String(item.position).padStart(2,'0')}</span></span><strong className="ranking-title">{item.title}</strong>{showScore&&item.score!==undefined&&<small className="ranking-score">{item.score}</small>}</button>;}

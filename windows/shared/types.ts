@@ -1,3 +1,4 @@
+import type {ProAPI} from './pro';
 import type {ParityAPI} from './parity';
 import type {DesktopAPI} from './desktop';
 import type {UserProfilesAPI} from './profiles';
@@ -70,6 +71,7 @@ export interface ThreadResult {
   pages?: {number:number;url:string}[];
   totalPages?: number;
   replyRestriction?: string;
+  accessStatus?: 'private';
 }
 export interface AccountState {
   status: 'unknown' | 'signed-out' | 'signed-in' | 'verification';
@@ -101,7 +103,7 @@ export interface Settings {
   restoreTabs: boolean;
   defaultSource: 'auto' | 'rss';
 }
-export interface SavedReadingAnchor {floor:string;page:number;offset:number}
+export interface SavedReadingAnchor {floor:string;page:number;offset:number;blockPath?:number[];blockOffset?:number;blockFingerprint?:string}
 export interface SavedWorkspace {
   tabs: Post[];
   activeId: string | null;
@@ -111,12 +113,13 @@ export interface SavedWorkspace {
   readingAnchors?: Record<string,SavedReadingAnchor>;
 }
 export type ForumActionRequest =
-  | {kind:'reply';url:string;content:string;quote?:{floor:string;author:string;text:string}}
+  | {kind:'reply';url:string;content:string;localDraft?:{content:string;imageWidths:Record<string,number>};quote?:{floor:string;author:string;text:string}}
   | {kind:'react';url:string;commentId:string;reaction:'like'|'dislike'|'chicken';approval?:'quote'|'free'|'paid'}
   | {kind:'follow';memberId:number;follow:boolean}
   | {kind:'block';memberId:number;block:boolean}
   | {kind:'message';memberId:number;content:string;markdown?:boolean};
 export interface ForumActionResult {
+  localWarning?:string;
   message: string;
   confirmation?: 'free' | 'paid';
   count?: number;
@@ -130,10 +133,11 @@ export interface Bootstrap {
   version: string;
   buildNumber?: string;
   storageWarning?: string;
+  preferencesReadOnly?: boolean;
   official: OfficialViewState;
   blockedUsers: number[];
 }
-export interface SeekDeskAPI extends ParityAPI,DesktopAPI,UserProfilesAPI,ReadingLibraryAPI {
+export interface SeekDeskAPI extends ParityAPI,DesktopAPI,UserProfilesAPI,ReadingLibraryAPI,ProAPI {
   bootstrap(): Promise<Bootstrap>;
   listPosts(request: ListingRequest): Promise<ListingResult>;
   readThread(post: Post, page?: number): Promise<ThreadResult>;

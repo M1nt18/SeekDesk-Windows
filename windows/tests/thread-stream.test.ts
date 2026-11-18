@@ -114,3 +114,9 @@ test('an incomplete or forged HOT action location cannot overwrite a known genui
     assert.equal(merged.comments[1].sourcePage,3);assert.equal(merged.comments[1].actionUrl,url(3)+'#25');
   }
 });
+
+test('a confirmed private denial on the next page discards previously displayed floors',()=>{
+  const previous={id:'123',url:'https://www.nodeseek.com/post-123-1',title:'Visible before',source:'web' as const,page:1,nextPage:2,comments:[{id:'0',author:'Owner',floor:'楼主',date:'',html:'previous visible content'}]};
+  const denied={id:'123',url:'https://www.nodeseek.com/post-123-2',title:'私有帖子',source:'web' as const,page:2,nextPage:null,comments:[],accessStatus:'private' as const};
+  const merged=mergeThreadPage(previous,denied);assert.equal(merged.accessStatus,'private');assert.deepEqual(merged.comments,[]);assert.equal(merged.nextPage,null);assert.equal(previous.comments.length,1);
+});

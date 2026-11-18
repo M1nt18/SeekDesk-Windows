@@ -5,6 +5,7 @@ import type {ReadingLibraryMutation,ReadingLibraryState} from '../../shared/libr
 import {matchesSearch} from '../search';
 import {Empty,ErrorState,Loading,Modal,dateLabel} from './shared-ui';
 import './reading-library.css';
+import {useModalLayer} from '../useModalLayer';
 
 export type ReadingLibraryMode='bookmarks'|'history'|'commands'|'changes';
 export type ReadingCommand='search'|'bookmark'|'refresh-thread'|'refresh-list'|'settings';
@@ -48,6 +49,7 @@ const changes=[
 export function ReadingLibraryPanel({state,mode,loading,error,busy=false,onModeChange,onClose,onRetry,onOpen,onMutate,onCommand,onCopy}:ReadingLibraryPanelProps) {
   const [query,setQuery]=useState(''),[pending,setPending]=useState(false),[actionError,setActionError]=useState(''),[copied,setCopied]=useState(false);
   const [confirmation,setConfirmation]=useState<'clear-bookmarks'|'clear-history'|null>(null);
+  const confirmationPanel=useRef<HTMLElement>(null);useModalLayer(confirmationPanel,()=>setConfirmation(null),Boolean(confirmation));
   const search=useRef<HTMLInputElement>(null),list=useRef<HTMLDivElement>(null),cancel=useRef<HTMLButtonElement>(null),mounted=useRef(true),actionScope=useRef(0),pendingRef=useRef(false);
   const locked=busy||pending;
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
@@ -109,7 +111,7 @@ export function ReadingLibraryPanel({state,mode,loading,error,busy=false,onModeC
   };
 
   return <Modal title="阅读资料库" onClose={close} wide><div className="reading-library" data-testid="reading-library-panel">
-    {confirmation?<section className="reading-library-confirm" role="alertdialog" aria-label={confirmation==='clear-bookmarks'?'清空本地书签':'清空阅读历史'}>
+    {confirmation?<section ref={confirmationPanel} tabIndex={-1} className="reading-library-confirm" role="alertdialog" aria-modal="true" aria-label={confirmation==='clear-bookmarks'?'清空本地书签':'清空阅读历史'}>
       <Trash2 size={24} aria-hidden="true"/><h3>{confirmation==='clear-bookmarks'?'清空当前账号的本地书签？':'清空当前账号的阅读历史？'}</h3>
       <p>此操作只移除本机记录，无法撤销。</p>
       <div><button ref={cancel} className="secondary-button" disabled={locked} onClick={()=>setConfirmation(null)}>取消</button><button className="primary-button destructive" disabled={locked} onClick={()=>void clear()}>{pending?'正在清空…':'确认清空'}</button></div>

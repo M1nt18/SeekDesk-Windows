@@ -1,3 +1,5 @@
+import {anonymousImageFetch} from './image-network';
+import {randomUUID} from 'node:crypto';
 import { app, autoUpdater, BrowserWindow, WebContentsView, ipcMain, session, shell, clipboard, Notification, globalShortcut, nativeImage, dialog, screen, Tray, Menu, safeStorage, type Session, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
@@ -14,7 +16,7 @@ import {DesktopWindowController} from './desktop-window';
 import {UpdaterService} from './updater';
 import {ReadingLibraryStore} from './reading-library';
 import {prepareCaptureMode,captureModeImage,type CaptureMode} from './capture-mode';
-import {ParityStore,validateHistory} from './parity-store';
+import {ParityStore,validateHistory,validateDraft} from './parity-store';
 import {MediaService} from './media';
 import {ExtensionsService} from './extensions';
 import {createQueryScript,createWriteScript,requestPage,validateQueryRequest,validateWriteRequest} from './parity-forum';
@@ -63,6 +65,9 @@ const readerSetup=new WeakMap<BrowserWindow,Promise<void>>();
 let account: AccountState = {status:'unknown'};
 let confirmedIdentity: string | undefined;
 let generation = 0;
+let identityEpoch=0;
+let clearingSession=false;
+const remoteNavigation=new WeakMap<WebContents,{revision:number;identityEpoch:number}>();
 let verificationUntil = 0;
 let websiteQueue: Promise<unknown> = Promise.resolve();
 let metadataQueue: Promise<unknown> = Promise.resolve();
@@ -70,6 +75,7 @@ let rssCache: {posts: Post[]; time:number} | null = null;
 const publicLibraryPosts=new Map<string,Post>();
 let rssPending: Promise<Post[]> | null = null;
 let actionPending = false;
+const imageRequests=new Map<string,AbortController>();
 const avatarCache = new Map<number,{data:string;time:number}>();
 
 function assertLocal(event: IpcMainInvokeEvent | Electron.IpcMainEvent) {
@@ -107,6 +113,9 @@ function openNativePost(url:string){
   try{const normalized=normalizePostUrl(url),id=new URL(normalized).pathname.match(/^\/post-(\d+)-/)![1];closeOfficial();mainWindow?.webContents.send('app:open-post',{id,url:normalized,title:'帖子 #'+id,author:'',category:'',published:'',summary:''} satisfies Post);return true;}catch{return false;}
 }
 function secureRemote(contents: WebContents, isOfficialView = false, background = false) {
+  contents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{
+    if(mainFrame&&!inPlace)remoteNavigation.set(contents,{revision:(remoteNavigation.get(contents)?.revision||0)+1,identityEpoch});
+  });
   if (isOfficialView) contents.on('before-input-event',(event,input)=>{
     if(input.type==='keyDown' && (input.control || input.meta) && input.key.toLowerCase()==='w') {
       event.preventDefault();
@@ -137,11 +146,11 @@ function secureRemote(contents: WebContents, isOfficialView = false, background 
   });
 }
 async function inspectAccount(contents: WebContents, authoritative=false,reader=false) {
-  const version = generation;
-  if (contents.isDestroyed() || !isOfficialUrl(contents.getURL())) return account;
+  const version = generation,navigation=remoteNavigation.get(contents),epoch=identityEpoch;
+  if (clearingSession||contents.isDestroyed() || !isOfficialUrl(contents.getURL())||navigation?.identityEpoch!==epoch||!reader&&contents.isLoadingMainFrame()) return account;
   try {
     const result = reader?await evaluateReader<AccountState>(contents,extractIdentityScript):await contents.executeJavaScript(extractIdentityScript) as AccountState;
-    if (version === generation && result && ['unknown','signed-in','signed-out','verification'].includes(result.status)) {
+    if (!contents.isDestroyed()&&epoch===identityEpoch&&navigation===remoteNavigation.get(contents)&&version === generation && result && ['unknown','signed-in','signed-out','verification'].includes(result.status)) {
       if (authoritative || !officialState.visible || officialState.purpose==='calculator') {setAccount(result);return account;}
       return result;
     }
@@ -224,6 +233,7 @@ function setOfficialBounds(input: OfficialViewBounds) {
   view.setVisible(width>0 && height>0);
 }
 async function openOfficial(input?: string) {
+  if(clearingSession)throw Error('正在清除会话，请稍后重试');
   const target = input || FORUM_ORIGIN + '/signIn.html';
   if (!isOfficialUrl(target)) throw new Error('请使用 NodeSeek 官方 HTTPS 页面');
   if (!mainWindow || mainWindow.isDestroyed()) throw new Error('客户端窗口尚未就绪');
@@ -234,7 +244,7 @@ async function openOfficial(input?: string) {
     view.setVisible(false);
     mainWindow.contentView.addChildView(view);
     secureRemote(view.webContents,true);
-    view.webContents.on('did-start-loading',()=>{if(view===officialView&&officialState.purpose!=='calculator')updateOfficial({loading:true,error:undefined});});
+    view.webContents.on('did-start-loading',()=>{userscriptHost?.reset();if(view===officialView&&officialState.purpose!=='calculator')updateOfficial({loading:true,error:undefined});});
     view.webContents.on('did-stop-loading',()=>{if(view===officialView&&officialState.purpose!=='calculator')updateOfficial({loading:false});});
     const loaded=()=>{
       if(view!==officialView||officialState.purpose==='calculator') return;
@@ -254,7 +264,7 @@ async function openOfficial(input?: string) {
   const view=officialView;
   view.webContents.setZoomFactor(store.settings.uiFontSize/16);
   try {
-    if (view.webContents.getURL()!==target) await view.webContents.loadURL(target);
+    if (view.webContents.getURL()!==target||remoteNavigation.get(view.webContents)?.identityEpoch!==identityEpoch) await view.webContents.loadURL(target);
     else {updateOfficial({loading:false});await inspectOfficial();}
   } catch {
     if(view===officialView)updateOfficial({loading:false,error:'官方页面加载失败，请检查网络后重试'});
@@ -338,11 +348,11 @@ async function fetchUserProfile(memberId:number,signal:AbortSignal):Promise<Prof
     return {ok:false,reason:error instanceof Error&&/超时/.test(error.message)?'timeout':'network'};
   }
 }
-function onWebsite<T>(url: string, script: string, options: {timeout?:number;action?:boolean;reuse?:boolean;metadata?:boolean;signal?:AbortSignal}={}): Promise<T> {
+function onWebsite<T>(url: string, script: string, options: {timeout?:number;action?:boolean;reuse?:boolean;metadata?:boolean;signal?:AbortSignal;authoritativeIdentity?:boolean}={}): Promise<T> {
   const version = generation;
   const queue=options.metadata?metadataQueue:websiteQueue;
   const task = queue.catch(() => {}).then(async () => {
-    if (version !== generation||options.signal?.aborted) throw new Error('会话已变更，请重新读取');
+    if (clearingSession||version !== generation||options.signal?.aborted) throw new Error('会话已变更，请重新读取');
     if (Date.now() < verificationUntil) throw new Error('官网需要验证或当前不可用');
     const win = getReader(options.metadata);
     try {
@@ -354,7 +364,7 @@ function onWebsite<T>(url: string, script: string, options: {timeout?:number;act
       if (version !== generation) throw new Error('会话已变更，请重新读取');
       const actual = new URL(win.webContents.getURL());
       if (!isOfficialUrl(actual.href) || actual.pathname !== new URL(url).pathname) throw new Error('页面跳转，请在官方窗口登录后重试');
-      const observed = await inspectAccount(win.webContents,false,true);
+      const observed = await inspectAccount(win.webContents,options.authoritativeIdentity,true);
       if (observed.status === 'verification') throw new Error('官网需要人工验证');
       if(version!==generation||options.signal?.aborted)throw new Error('会话已变更，请重新读取');
       const result = await bounded(evaluateReader<T>(win.webContents,script),options.timeout ?? 6000,options.action?'操作结果尚未确认，请先刷新核实，勿重复提交':'官网读取超时');
@@ -477,12 +487,13 @@ async function forumAction(input: ForumActionRequest): Promise<ForumActionResult
   const userId=account.status==='signed-in'?account.id:undefined;
   if(!userId)throw new Error('请先在客户端内的官方页面登录，再进行操作');
   if(actionPending)throw new Error('上一项操作仍在处理中，请稍候');
-  const version=generation;
+  const version=generation,submittedAt=Date.now(),localDraft=request.kind==='reply'?validateDraft(input.kind==='reply'&&input.localDraft?input.localDraft:{content:request.content,imageWidths:{}}):null;
   const url=request.kind==='reply' || request.kind==='react'?normalizePostUrl(request.url):request.kind==='block'?FORUM_ORIGIN+'/':`${FORUM_ORIGIN}/space/${request.memberId}`;
   actionPending=true;
   try {
     const result=await onWebsite<ForumActionResult>(url,createActionScript(request,userId),{timeout:35000,action:true});
     if(version!==generation || account.status!=='signed-in' || account.id!==userId)throw new Error('账号已变化，操作状态需在官方页面核对');
+    if(request.kind==='reply'&&localDraft){const id=new URL(request.url).pathname.match(/^\/post-(\d+)-/)![1];try{await features.markReplySubmitted(userId,'reply:'+id,localDraft,submittedAt);}catch{result.localWarning='回复已发布，但本机回执未能保存；请重试本机草稿清理，勿重复发送';}}
     if(request.kind==='follow')memberProfiles.updateFollowing(request.memberId,request.follow);
     return result;
   } finally {actionPending=false;}
@@ -509,7 +520,7 @@ async function loadAvatar(input: unknown): Promise<string | null> {
 async function prepareRendererSave(reason:'quit'|'update') {
   const contents=mainWindow&&!mainWindow.isDestroyed()?mainWindow.webContents:undefined;
   if(reason==='quit'&&(!contents||contents.isDestroyed())){
-    await Promise.all([store?.save(),features?.storageWarning?undefined:features?.save(),desktopWindow?.flush()]);
+    await Promise.all([store?.storageWarning?undefined:store?.save(),features?.storageWarning?undefined:features?.save(),desktopWindow?.flush()]);
     return;
   }
   try{
@@ -529,7 +540,7 @@ async function prepareRendererSave(reason:'quit'|'update') {
       contents.once('destroyed',onDestroyed);
       contents.send('app:update-prepare',id,reason);
     });
-    await Promise.all([store.save(),features.storageWarning?undefined:features.save(),desktopWindow.flush()]);
+    await Promise.all([store.storageWarning?undefined:store.save(),features.storageWarning?undefined:features.save(),desktopWindow.flush()]);
   }catch(error){if(contents&&!contents.isDestroyed())contents.send('app:save-cancelled',reason);throw error;}
 }
 function registerIPC() {
@@ -582,7 +593,8 @@ function registerIPC() {
   handle('parity:write',(request,owner)=>{assertOwner(owner);return writeForum(request);});
   handle('parity:bootstrap',async()=>({extensions:extensions.getState(),appearance:features.appearance,media:media.settings(),stickers:await media.getStickers(),searchHistory:features.history}));
   handle('parity:appearance',async(value:unknown)=>{const appearance=await features.commitAppearance(value);applyBrandIcon();return appearance;});
-  handle('parity:history',async(value:unknown)=>{features.history=validateHistory(value);await features.save();});
+  handle('parity:history',async(value:unknown)=>{await features.commitHistory(value);});
+  handle('parity:reply-cleanup',(key:string,owner:number)=>{assertOwner(owner);return features.retryReplyCleanup(owner,key);});
   handle('parity:draft-load',(key:string,owner?:number)=>features.loadDraft(canAccessLocalDraft(account,confirmedIdentity,owner)?owner:undefined,key));
   handle('parity:draft-save',(key:string,value:unknown,owner?:number)=>{if(!canAccessLocalDraft(account,confirmedIdentity,owner))throw new Error('草稿所属账号已变化，未保存到其他账号');return features.saveDraft(owner,key,value);});
   handle('parity:contacts-read',(owner?:number)=>{assertOwner(owner);return features.readConversationContacts(account.id);});
@@ -591,7 +603,8 @@ function registerIPC() {
   handle('media:prepare',(content,widths)=>media.prepare(content,widths));
   handle('media:image-save',(url)=>media.saveImage(url));
   handle('media:image-copy',(url)=>media.copyImage(url));
-  handle('media:reader-image',(url,width)=>media.readerImage(url,width));
+  handle('media:reader-image',async(url,width,refresh,requestId)=>{if(requestId===undefined)return media.readerImage(url,width,refresh);if(typeof requestId!=='string'||!/^[-a-zA-Z0-9:]{1,128}$/.test(requestId)||imageRequests.has(requestId))throw Error('图片请求编号无效');if(imageRequests.size>=128)throw Error('图片请求过多，请稍后重试');const controller=new AbortController();imageRequests.set(requestId,controller);try{return await media.readerImage(url,width,refresh,controller.signal);}finally{if(imageRequests.get(requestId)===controller)imageRequests.delete(requestId);}});
+  handle('media:reader-cancel',(requestId:unknown)=>{if(typeof requestId!=='string'||!/^[-a-zA-Z0-9:]{1,128}$/.test(requestId))throw Error('图片请求编号无效');imageRequests.get(requestId)?.abort();});
   handle('media:settings',()=>media.settings());
   handle('media:save-settings',(input)=>media.setSettings(input));
   handle('media:stickers',()=>media.getStickers());
@@ -607,13 +620,17 @@ function registerIPC() {
   handle('extensions:boss-toggle',()=>toggleBoss());
   handle('app:clipboard',(value:unknown)=>{if(typeof value!=='string'||value.length>2000000)throw new Error('复制文本无效');return clipboard.writeText(value);});
   handle('app:updates',()=>updater.check());
-  handle('app:bootstrap', () => ({settings:store.settings,workspace:store.settings.restoreTabs ? restoredWorkspace(store.workspace) : {tabs:[],activeId:null,overviewOpen:store.workspace.overviewOpen ?? true,listHidden:store.workspace.listHidden===true},account,version:app.getVersion(),buildNumber,official:officialState,blockedUsers:store.blockedUsers,storageWarning:[features.storageWarning,userscriptHost.storageWarning].filter(Boolean).join('；')||undefined}));
+  handle('app:bootstrap', () => ({settings:store.settings,workspace:store.settings.restoreTabs ? restoredWorkspace(store.workspace) : {tabs:[],activeId:null,overviewOpen:store.workspace.overviewOpen ?? true,listHidden:store.workspace.listHidden===true},account,version:app.getVersion(),buildNumber,official:officialState,blockedUsers:store.blockedUsers,preferencesReadOnly:!!store.storageWarning,storageWarning:[store.storageWarning,features.storageWarning,media.storageWarning,userscriptHost.storageWarning].filter(Boolean).join('；')||undefined}));
   handle('forum:list', (request: ListingRequest) => listPosts(request || {}));
   handle('forum:thread', readThread);
   handle('forum:profiles',request=>memberProfiles.read(request));
   handle('forum:action',(request,owner)=>{assertOwner(owner);return forumAction(request);});
   handle('forum:avatar',loadAvatar);
-  handle('app:blocked-users',async(input:unknown)=>{store.blockedUsers=validateBlockedUsers(input);await store.save();return store.blockedUsers;});
+  handle('app:blocked-users',(input:unknown)=>store.commitBlockedUsers(input));
+  handle('script:credentials',()=>userscriptHost.credentials());
+  handle('script:credential-save',input=>userscriptHost.saveCredential(input));
+  handle('script:state',()=>userscriptHost.getState());
+  handle('script:export',async()=>{const data=userscriptHost.exportPreferences(),selected=await dialog.showSaveDialog(mainWindow!,{title:'导出脚本偏好（不含凭据）',defaultPath:'SeekDesk-Pro-settings.json',filters:[{name:'JSON',extensions:['json']}]});if(selected.canceled||!selected.filePath)return {canceled:true};const temp=selected.filePath+'.seekdesk-'+randomUUID()+'.tmp';try{await fs.writeFile(temp,data,{encoding:'utf8',flag:'wx'});await fs.rename(temp,selected.filePath);}finally{await fs.unlink(temp).catch(()=>{});}return {canceled:false};});
   handle('script:settings',async()=>{
     if(!store.settings.nodeSeekPro)throw new Error('请先启用 NodeSeek Pro');
     if(!officialView || !officialState.visible || officialState.purpose==='calculator')await openOfficial(FORUM_ORIGIN+'/');
@@ -627,23 +644,28 @@ function registerIPC() {
   handle('forum:reload',()=>{const view=officialState.purpose==='calculator'?calculatorView:officialView;if(view&&!view.webContents.isDestroyed())view.webContents.reload();});
   handle('app:external', (url: string) => shell.openExternal(safeHttp(url)));
   handle('forum:account', async () => {
-    if (officialState.purpose!=='calculator'&&officialView && !officialView.webContents.isDestroyed()) return inspectOfficial();
-    try { await onWebsite(FORUM_ORIGIN+'/',extractIdentityScript,{metadata:true}); } catch { /* Expose unknown/verification instead of claiming login. */ }
+    if(clearingSession)return account;
+    identityEpoch++;
+    try { await onWebsite(FORUM_ORIGIN+'/',extractIdentityScript,{metadata:true,authoritativeIdentity:true}); } catch { /* Never confirm an old retained official document. */ }
     return account;
   });
   handle('forum:clear', async () => {
+    if(clearingSession)throw Error('正在清除会话，请稍后重试');
+    clearingSession=true;identityEpoch++;
     generation++;
     resetProfileScope();
     destroyOfficial(); readerWindow?.destroy();
     readerWindow=null;
-    await forumSession.clearStorageData();
-    await forumSession.clearCache();
-    await forumSession.closeAllConnections();
     avatarCache.clear();
     store.workspace={tabs:[],activeId:null};
-    await store.save();
     verificationUntil=0;
     setAccount({status:'signed-out'});
+    try{
+      await forumSession.clearStorageData();
+      await forumSession.clearCache();
+      await forumSession.closeAllConnections();
+      try{await store.save();}catch{throw Error('会话已清除，但工作区无法保存；旧账号访问已失效');}
+    }finally{clearingSession=false;}
   });
   handle('app:settings', async (value: unknown) => {
     const {settings:next,previous}=await store.commitSettings(value);
@@ -651,6 +673,7 @@ function registerIPC() {
     if(officialView) {
       officialView.webContents.setZoomFactor(next.uiFontSize/16);
       if(scriptChanged) {
+        userscriptHost.reset();
         if(officialState.visible)officialView.webContents.reload();
         else destroyOfficial();
       }
@@ -658,7 +681,7 @@ function registerIPC() {
     calculatorView?.webContents.setZoomFactor(next.uiFontSize/16);
     return next;
   });
-  handle('app:workspace', async (value: unknown) => {store.workspace=validateWorkspace(value); await store.save();});
+  handle('app:workspace',(value:unknown)=>store.commitWorkspace(value));
   ipcMain.on('app:window',(event,action) => {assertLocal(event); if (action==='close') mainWindow?.close(); else if(action==='minimize') mainWindow?.minimize(); else if(action==='maximize' && mainWindow) {if(mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize();}});
 }
 function createMain() {
@@ -697,9 +720,10 @@ else {
     store = new Store(app.getPath('userData'));
     await store.load();
     features=new ParityStore(app.getPath('userData'));
-    media=new MediaService(app.getPath('userData'),()=>mainWindow);
+    const imageSession=session.fromPartition('public-media');imageSession.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));imageSession.setPermissionCheckHandler(()=>false);
+    media=new MediaService(app.getPath('userData'),()=>mainWindow,{fetchImage:anonymousImageFetch(imageSession)});
     readingLibrary=new ReadingLibraryStore(app.getPath('userData'));
-    await Promise.all([features.load(),media.load(),readingLibrary.load()]);
+    await Promise.all([features.load(),features.loadReceipts(),media.load(),readingLibrary.load()]);
     desktopWindow=await DesktopWindowController.load({directory:app.getPath('userData'),app,screen,dialog,createTray:icon=>new Tray(icon),createMenu:template=>Menu.buildFromTemplate(template),trayIcon:path.join(__dirname,'../../build/icon.ico'),onFinalQuit:()=>prepareRendererSave('quit')});
     const installed=app.isPackaged&&process.platform==='win32'&&!process.env.PORTABLE_EXECUTABLE_DIR&&await fs.stat(path.join(path.dirname(process.execPath),'Uninstall SeekDesk Windows.exe')).then(value=>value.isFile()).catch(()=>false);
     updater=new UpdaterService({currentVersion:app.getVersion(),isPackaged:app.isPackaged,isInstalled:installed,userDataDirectory:app.getPath('userData'),automaticChecks:desktopWindow.getPreferences().automaticUpdates!==false,beforeInstall:()=>prepareRendererSave('update'),onChange:state=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('app:update-change',state);}});
@@ -711,7 +735,7 @@ else {
       onBossKey:configureBoss,
       onMatch:hit=>{if(!extensions.getState().watchSystemNotifications||!Notification.isSupported())return;const notification=new Notification({title:'SeekDesk · 关键词提醒',body:hit.post.title,silent:false});notification.on('click',()=>{mainWindow?.show();mainWindow?.focus();mainWindow?.webContents.send('app:open-post',hit.post);});notification.show();}
     });
-    userscriptHost=new UserscriptHost({storageDirectory:path.join(app.getPath('userData'),'userscripts'),storageProtection:safeStorage,getOfficialContents:()=>officialState.purpose==='calculator'?null:officialView?.webContents ?? null,isEnabled:()=>store.settings.nodeSeekPro&&officialState.purpose!=='calculator',onOpen:async(url:string)=>{if(isOfficialUrl(url))await openOfficial(url);else await shell.openExternal(safeHttp(url));}});
+    userscriptHost=new UserscriptHost({storageDirectory:path.join(app.getPath('userData'),'userscripts'),storageProtection:safeStorage,onManageCredentials:()=>{closeOfficial();mainWindow?.webContents.send('script:credentials-open');},onState:state=>mainWindow?.webContents.send('script:state-change',state),getOfficialContents:()=>officialState.purpose==='calculator'?null:officialView?.webContents ?? null,isEnabled:()=>store.settings.nodeSeekPro&&officialState.purpose!=='calculator',onOpen:async(url:string)=>{if(isOfficialUrl(url))await openOfficial(url);else await shell.openExternal(safeHttp(url));}});
     await userscriptHost.load();
     userscriptHost.registerIPC(ipcMain);
     registerIPC();

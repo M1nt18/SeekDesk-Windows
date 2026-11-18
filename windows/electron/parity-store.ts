@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
 import type {ConversationContact,DraftValue,ExtensionsState,ParitySettings,SearchHistory} from '../shared/parity';
 import {defaultExtensions,sanitizeExtensions} from './extensions';
 import {SIDEBAR_STANDARD,SIDEBAR_MIN,SIDEBAR_MAX,clampSidebarWidth} from '../shared/layout';
@@ -33,16 +34,56 @@ export class ParityStore{
   appearance={...appearanceDefaults};extensions:ExtensionsState=defaultExtensions();history:SearchHistory[]=[];
   private drafts:Record<string,Record<string,DraftValue>>=Object.create(null);private contacts:Record<string,ConversationContact[]>=Object.create(null);private queue:Promise<unknown>=Promise.resolve();
   private problem:string|undefined;
-  get storageWarning(){return this.problem;}
+  private receiptProblem?:string;
+  private receipts:Record<string,{hash:string;submittedAt:number;acceptedAt:number}>=Object.create(null);
+  private pendingReceipts=new Map<string,{hash:string;submittedAt:number;acceptedAt:number}>();
+  get storageWarning(){return this.problem||this.receiptProblem;}
   private assertReadable(){if(this.problem)throw new Error(this.problem);}
   constructor(private directory:string,private readonly io:Pick<typeof fs,'mkdir'|'writeFile'|'rename'|'readFile'>=fs){}
-  async load(){try{const row=JSON.parse(await this.io.readFile(path.join(this.directory,'workspace-features.json'),'utf8'));if(!row||typeof row!=='object'||Array.isArray(row))throw Error('invalid workspace file');try{this.appearance=validateAppearance(row.appearance);}catch{}try{this.extensions=sanitizeExtensions(row.extensions);}catch{}try{this.history=validateHistory(row.history);}catch{}if(row.drafts&&typeof row.drafts==='object')for(const [owner,drafts] of Object.entries(row.drafts)){if(!/^[1-9]\d{0,9}$/.test(owner)||!drafts||typeof drafts!=='object')continue;const valid:Record<string,DraftValue>=Object.create(null);for(const [key,value] of Object.entries(drafts).slice(-100)){try{this.key(key);const draft=validateDraft(value);if(draft)valid[key]=draft;}catch{}}this.drafts[owner]=valid;}if(row.contacts&&typeof row.contacts==='object')for(const [owner,contacts] of Object.entries(row.contacts)){if(!/^[1-9]\d{0,9}$/.test(owner)||!Array.isArray(contacts))continue;const seen=new Set<number>();this.contacts[owner]=contacts.flatMap(contact=>{try{const valid=this.contact(contact);if(valid.id===Number(owner)||seen.has(valid.id))return [];seen.add(valid.id);return [valid];}catch{return [];}}).slice(0,500);}this.problem=undefined;}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')this.problem='工作区配置无法读取，原文件已保留；草稿和设置暂停保存，请修复文件后重新启动应用';}}
+  async load(){try{const row=JSON.parse(await this.io.readFile(path.join(this.directory,'workspace-features.json'),'utf8'));if(!row||typeof row!=='object'||Array.isArray(row))throw Error('invalid workspace file');try{this.appearance=validateAppearance(row.appearance);}catch{}try{this.extensions=sanitizeExtensions(row.extensions);}catch{}try{this.history=validateHistory(row.history);}catch{}if(row.drafts&&typeof row.drafts==='object')for(const [owner,drafts] of Object.entries(row.drafts)){if(!/^[1-9]\d{0,9}$/.test(owner)||!drafts||typeof drafts!=='object')continue;const valid:Record<string,DraftValue>=Object.create(null);for(const [key,value] of Object.entries(drafts).slice(-100)){try{this.key(key);const draft=validateDraft(value);if(draft){if(value&&typeof value==='object'&&typeof (value as DraftValue).updatedAt==='string')draft.updatedAt=(value as DraftValue).updatedAt;valid[key]=draft;}}catch{}}this.drafts[owner]=valid;}if(row.contacts&&typeof row.contacts==='object')for(const [owner,contacts] of Object.entries(row.contacts)){if(!/^[1-9]\d{0,9}$/.test(owner)||!Array.isArray(contacts))continue;const seen=new Set<number>();this.contacts[owner]=contacts.flatMap(contact=>{try{const valid=this.contact(contact);if(valid.id===Number(owner)||seen.has(valid.id))return [];seen.add(valid.id);return [valid];}catch{return [];}}).slice(0,500);}this.problem=undefined;}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')this.problem='工作区配置无法读取，原文件已保留；草稿和设置暂停保存，请修复文件后重新启动应用';}}
   private key(key:unknown):asserts key is string{if(typeof key!=='string'||!key||key.length>240||/[\x00-\x1f]/.test(key))throw new Error('草稿位置无效');}
-  loadDraft(owner:number|undefined,key:string){this.assertReadable();this.key(key);const rows=owner?this.drafts[String(owner)]:undefined;return rows&&Object.hasOwn(rows,key)?structuredClone(rows[key]):null;}
-  async saveDraft(owner:number|undefined,key:string,input:unknown){this.assertReadable();this.key(key);if(!owner)throw new Error('请确认登录账号后保存草稿');const draft=validateDraft(input),id=String(owner);this.drafts[id]??=Object.create(null);if(draft)Object.defineProperty(this.drafts[id],key,{value:draft,writable:true,enumerable:true,configurable:true});else delete this.drafts[id][key];const keys=Object.keys(this.drafts[id]);for(const stale of keys.slice(0,Math.max(0,keys.length-100)))delete this.drafts[id][stale];await this.save();}
+  loadDraft(owner:number|undefined,key:string){this.assertReadable();if(this.receiptProblem)throw Error(this.receiptProblem);this.key(key);const rows=owner?this.drafts[String(owner)]:undefined,value=rows&&Object.hasOwn(rows,key)?rows[key]:undefined;return value&&!this.wasSubmitted(owner!,key,value)?structuredClone(value):null;}
+  async saveDraft(owner:number|undefined,key:string,input:unknown){
+    this.assertReadable();this.key(key);if(!owner)throw new Error('请确认登录账号后保存草稿');
+    const draft=validateDraft(input),id=String(owner);
+    const task=this.queue.catch(()=>{}).then(async()=>{
+      const rows={...this.drafts[id]};if(draft)Object.defineProperty(rows,key,{value:draft,writable:true,enumerable:true,configurable:true});else delete rows[key];
+      for(const stale of Object.keys(rows).slice(0,Math.max(0,Object.keys(rows).length-100)))delete rows[stale];
+      const next={...this.drafts,[id]:rows};await this.persist({drafts:next});this.drafts=next;
+    });this.queue=task;return task;
+  }
   private contact(input:unknown):ConversationContact{if(!input||typeof input!=='object')throw new Error('私信联系人无效');const row=input as Record<string,unknown>;if(!Number.isSafeInteger(row.id)||Number(row.id)<1||Number(row.id)>9999999999||typeof row.name!=='string'||row.name.length>200||/[\x00-\x1f]/.test(row.name))throw new Error('私信联系人无效');return {id:Number(row.id),name:row.name.trim()};}
   readConversationContacts(owner:number|undefined):ConversationContact[]{this.assertReadable();return owner?structuredClone(this.contacts[String(owner)]||[]):[];}
-  async rememberConversationContact(owner:number|undefined,input:unknown):Promise<ConversationContact[]>{this.assertReadable();if(!Number.isSafeInteger(owner)||!owner||owner<1||owner>9999999999)throw new Error('请确认登录账号后保存联系人');const contact=this.contact(input);if(contact.id===owner)return this.readConversationContacts(owner);const key=String(owner),previous=this.contacts[key]||[],known=previous.find(row=>row.id===contact.id);if(!contact.name&&known)contact.name=known.name;const next=[contact,...previous.filter(row=>row.id!==contact.id)].slice(0,500);if(JSON.stringify(next)!==JSON.stringify(previous)){this.contacts[key]=next;await this.save();}return this.readConversationContacts(owner);}
+  async rememberConversationContact(owner:number|undefined,input:unknown):Promise<ConversationContact[]>{
+    this.assertReadable();if(!Number.isSafeInteger(owner)||!owner||owner<1||owner>9999999999)throw new Error('请确认登录账号后保存联系人');const candidate=this.contact(input);
+    const task=this.queue.catch(()=>{}).then(async()=>{
+      if(candidate.id===owner)return this.readConversationContacts(owner);
+      const key=String(owner),previous=this.contacts[key]||[],contact={...candidate},known=previous.find(row=>row.id===contact.id);
+      if(!contact.name&&known)contact.name=known.name;
+      const rows=[contact,...previous.filter(row=>row.id!==contact.id)].slice(0,500),next={...this.contacts,[key]:rows};
+      if(JSON.stringify(rows)!==JSON.stringify(previous)){await this.persist({contacts:next});this.contacts=next;}
+      return this.readConversationContacts(owner);
+    });this.queue=task;return task;
+  }
+  commitHistory(input:unknown){const next=validateHistory(input);const task=this.queue.catch(()=>{}).then(async()=>{await this.persist({history:next});this.history=next;});this.queue=task;return task;}
+  async loadReceipts(){
+    try{const row=JSON.parse(await this.io.readFile(path.join(this.directory,'reply-receipts.json'),'utf8'));if(row?.version!==1||!row.entries||typeof row.entries!=='object'||Array.isArray(row.entries))throw Error('invalid receipt');
+      for(const [key,value] of Object.entries(row.entries) as [string,{hash:string;submittedAt:number;acceptedAt:number}][]){if(!/^[1-9]\d{0,9}:reply:[1-9]\d{0,239}$/.test(key)||!value||!/^[a-f0-9]{64}$/.test(value.hash)||!Number.isFinite(value.submittedAt)||!Number.isFinite(value.acceptedAt)||value.submittedAt>value.acceptedAt)throw Error('invalid receipt');this.receipts[key]=value;}
+    }catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')this.receiptProblem='回复回执无法读取，原文件已保留；请修复后重启，避免把已发布内容误认为未发送草稿';}
+  }
+  private draftHash(draft:DraftValue){return createHash('sha256').update(JSON.stringify([draft.content,Object.entries(draft.imageWidths||{}).sort(([a],[b])=>a.localeCompare(b))])).digest('hex');}
+  private wasSubmitted(owner:number,key:string,draft:DraftValue){const receipt=this.receipts[owner+':'+key]||this.pendingReceipts.get(owner+':'+key);if(!receipt)return false;const edited=Date.parse(draft.updatedAt||'')||0;return edited<=receipt.submittedAt||edited<=receipt.acceptedAt&&this.draftHash(draft)===receipt.hash;}
+  markReplySubmitted(owner:number,key:string,draft:DraftValue,submittedAt:number){
+    this.key(key);const scope=owner+':'+key,receipt={hash:this.draftHash(draft),submittedAt,acceptedAt:Date.now()};this.pendingReceipts.set(scope,receipt);
+    return this.persistPendingReceipt(scope);
+  }
+  private persistPendingReceipt(_scope:string){const task=this.queue.catch(()=>{}).then(()=>this.flushReceipts());this.queue=task;return task;}
+  private async flushReceipts(){
+    if(!this.pendingReceipts.size)return;if(this.receiptProblem)throw Error(this.receiptProblem);
+    const pending=new Map(this.pendingReceipts),next={...this.receipts,...Object.fromEntries(pending)},entries=Object.fromEntries(Object.entries(next).sort(([,a],[,b])=>b.acceptedAt-a.acceptedAt).filter(([scope],index)=>index<2000||Boolean(this.drafts[scope.slice(0,scope.indexOf(':'))]?.[scope.slice(scope.indexOf(':')+1)])));
+    await this.io.mkdir(this.directory,{recursive:true});const target=path.join(this.directory,'reply-receipts.json');await this.io.writeFile(target+'.tmp',JSON.stringify({version:1,entries}));await this.io.rename(target+'.tmp',target);this.receipts=entries;for(const [scope,receipt]of pending)if(this.pendingReceipts.get(scope)===receipt)this.pendingReceipts.delete(scope);
+  }
+  async retryReplyCleanup(owner:number,key:string){this.key(key);await this.persistPendingReceipt(owner+':'+key);const draft=this.drafts[String(owner)]?.[key];if(draft&&this.wasSubmitted(owner,key,draft))await this.saveDraft(owner,key,null);}
   save(){this.queue=this.queue.catch(()=>{}).then(()=>this.persist());return this.queue;}
   commitAppearance(input:unknown){
     const next=validateAppearance(input);
@@ -54,9 +95,10 @@ export class ParityStore{
     const task=this.queue.catch(()=>{}).then(async()=>{await this.persist({extensions:next});this.extensions=next;return structuredClone(next);});
     this.queue=task;return task;
   }
-  private async persist(overrides:{appearance?:ParitySettings;extensions?:ExtensionsState}={}){
+  private async persist(overrides:{appearance?:ParitySettings;extensions?:ExtensionsState;drafts?:Record<string,Record<string,DraftValue>>;contacts?:Record<string,ConversationContact[]>;history?:SearchHistory[]}={}){
     this.assertReadable();
-    const snapshot=JSON.stringify({appearance:overrides.appearance??this.appearance,extensions:overrides.extensions??this.extensions,history:this.history,drafts:this.drafts,contacts:this.contacts});
+    await this.flushReceipts();
+    const snapshot=JSON.stringify({appearance:overrides.appearance??this.appearance,extensions:overrides.extensions??this.extensions,history:overrides.history??this.history,drafts:overrides.drafts??this.drafts,contacts:overrides.contacts??this.contacts});
     await this.io.mkdir(this.directory,{recursive:true});const target=path.join(this.directory,'workspace-features.json');
     await this.io.writeFile(target+'.tmp',snapshot);await this.io.rename(target+'.tmp',target);
   }

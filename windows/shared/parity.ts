@@ -31,7 +31,7 @@ export interface DraftValue {content:string;title?:string;category?:string;rank?
 export interface ImageUploadInput {name:string;mime:string;bytes:number[]|Uint8Array;width?:number}
 export interface UploadedImage {url:string;width?:number;height?:number}
 export interface ReaderImage {data:string;width:number;height:number;originalWidth:number;originalHeight:number;reduced:boolean}
-export interface MediaSettings {hasApiKey:boolean;defaultImageWidth:number}
+export interface MediaSettings {hasApiKey:boolean;defaultImageWidth:number;credentialError?:string;storageWarning?:string}
 export interface StickerItem {id:string;name:string;url:string;group:string;official:boolean}
 export type ExtensionId='hot'|'attendance'|'office'|'value'|'block'|'authorOnly'|'keywords'|'rulings';
 export type RankingPeriod='realtime'|'daily'|'weekly';
@@ -68,11 +68,12 @@ export interface ParityAPI {
  openCalculator():Promise<void>;
  queryForum(request:ForumQueryRequest):Promise<ForumQueryResult>;
  writeForum(request:ForumWriteRequest,expectedOwner:number):Promise<ForumWriteResult>;
+ retryReplyDraftCleanup(key:string,owner:number):Promise<void>;
  loadDraft(key:string,owner?:number):Promise<DraftValue|null>;saveDraft(key:string,value:DraftValue|null,owner?:number):Promise<void>;
  uploadImage(input:ImageUploadInput):Promise<UploadedImage>;
  prepareImages(content:string,widths:Record<string,number>):Promise<string>;
  saveImage(url:string):Promise<void>;copyImage(url:string):Promise<void>;
- loadReaderImage(url:string,width:number):Promise<ReaderImage>;
+ loadReaderImage(url:string,width:number,refresh?:boolean,requestId?:string):Promise<ReaderImage>;cancelReaderImage(requestId:string):Promise<void>;
  getMediaSettings():Promise<MediaSettings>;setMediaSettings(input:{apiKey?:string;clearKey?:boolean;defaultImageWidth?:number}):Promise<MediaSettings>;
  getStickers():Promise<StickerItem[]>;importStickers(group:string):Promise<StickerItem[]>;removeSticker(id:string):Promise<void>;uploadSticker(id:string):Promise<UploadedImage>;
  parityBootstrap():Promise<ParityBootstrap>;saveAppearance(value:ParitySettings):Promise<ParitySettings>;

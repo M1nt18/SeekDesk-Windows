@@ -36,7 +36,8 @@ export function validateWorkspace(value: unknown): SavedWorkspace {
     if(!tab||!value||typeof value!=='object'||typeof value.floor!=='string'||!/^(?:0|[1-9]\d{0,8})$/.test(value.floor)||!Number.isSafeInteger(value.page)||value.page<1||value.page>100000||typeof value.offset!=='number'||!Number.isFinite(value.offset)||Math.abs(value.offset)>100000000)continue;
     const location=new URL(tab.url);
     if(Number(location.pathname.match(/-(\d+)$/)?.[1])!==value.page||location.hash.replace(/^#(?:comment-)?/,'')!==value.floor)continue;
-    readingAnchors[id]={floor:value.floor,page:value.page,offset:value.offset};
+    const block=value.blockPath;
+    readingAnchors[id]={floor:value.floor,page:value.page,offset:value.offset,...(Array.isArray(block)&&block.length>0&&block.length<=12&&block.every(index=>Number.isSafeInteger(index)&&index>=0&&index<100000)&&typeof value.blockOffset==='number'&&Number.isFinite(value.blockOffset)&&Math.abs(value.blockOffset)<=100000000&&typeof value.blockFingerprint==='string'&&/^[A-Z][A-Z0-9]*:[a-f0-9]{1,8}$/.test(value.blockFingerprint)?{blockPath:[...block],blockOffset:value.blockOffset,blockFingerprint:value.blockFingerprint}:{})};
   }
   return {tabs, activeId: typeof v.activeId === 'string' && seen.has(v.activeId) ? v.activeId : null,overviewOpen:typeof v.overviewOpen==='boolean'?v.overviewOpen:true,listHidden:v.listHidden===true,scrollPositions,...(Object.keys(readingAnchors).length?{readingAnchors}:{})};
 }
@@ -45,6 +46,8 @@ export class Store {
   workspace: SavedWorkspace = {tabs: [], activeId: null};
   blockedUsers: number[] = [];
   private queue: Promise<unknown> = Promise.resolve();
+  private problem?:string;
+  get storageWarning(){return this.problem;}
   constructor(private directory: string,private readonly io:Pick<typeof fs,'mkdir'|'readFile'|'writeFile'|'rename'>=fs) {}
   async load() {
     try {
@@ -52,7 +55,7 @@ export class Store {
       this.settings = validateSettings(value.settings);
       try { this.workspace = validateWorkspace(value.workspace); } catch { /* Ignore outdated workspace. */ }
       try { this.blockedUsers = validateBlockedUsers(value.blockedUsers || []); } catch { /* Ignore malformed old preferences. */ }
-    } catch { /* First run or corrupt preferences: use safe defaults. */ }
+    } catch(error) {if((error as NodeJS.ErrnoException).code!=='ENOENT')this.problem='偏好配置无法读取，原文件已保留；设置和工作区暂停保存，请修复后重新启动应用';}
   }
   save() {
     const workspace=structuredClone(this.workspace),blockedUsers=[...this.blockedUsers];
@@ -70,7 +73,18 @@ export class Store {
     });
     this.queue=task;return task;
   }
+  commitWorkspace(value:unknown){
+    const next=validateWorkspace(value);
+    const task=this.queue.catch(()=>{}).then(async()=>{await this.persist(this.settings,next,this.blockedUsers);this.workspace=next;});
+    this.queue=task;return task;
+  }
+  commitBlockedUsers(value:unknown){
+    const next=validateBlockedUsers(value);
+    const task=this.queue.catch(()=>{}).then(async()=>{await this.persist(this.settings,this.workspace,next);this.blockedUsers=next;return [...next];});
+    this.queue=task;return task;
+  }
   private async persist(settings:Settings,workspace:SavedWorkspace,blockedUsers:number[]) {
+    if(this.problem)throw Error(this.problem);
     const snapshot=JSON.stringify({settings,workspace:settings.restoreTabs?workspace:{tabs:[],activeId:null,overviewOpen:workspace.overviewOpen??true,listHidden:workspace.listHidden===true},blockedUsers},null,2);
     await this.io.mkdir(this.directory,{recursive:true});
     const target=path.join(this.directory,'preferences.json');

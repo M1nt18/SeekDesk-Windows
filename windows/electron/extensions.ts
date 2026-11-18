@@ -103,7 +103,7 @@ export class ExtensionsService {
   private applyUpdate(input:ExtensionsState,persisted=false,acknowledgedUnread?:number):ExtensionsState {
     const {next,changed}=this.prepareUpdate(input,acknowledgedUnread);
     if(changed){this.etag='';this.modified='';}
-    this.state=next;this.restart();this.emit(persisted);return this.getState();
+    const previous=this.state;this.state=next;this.restart(previous);this.emit(persisted);return this.getState();
   }
   update(input:ExtensionsState):ExtensionsState {return this.applyUpdate(input);}
   commitUpdate(input:ExtensionsState,persist:(state:ExtensionsState)=>Promise<unknown>):Promise<ExtensionsState> {
@@ -119,11 +119,20 @@ export class ExtensionsService {
     this.updateQueue=task;return task;
   }
   private active(id:ExtensionId) {return this.state.installed.includes(id)&&this.state.enabled.includes(id);}
-  private restart() {
-    this.epoch++;this.clear(this.watchTimer);this.clear(this.attendanceTimer);
-    this.hooks.onBossKey?.(this.active('office'),this.getState());
-    if(this.active('keywords')&&keywordGroups(this.state.watchWords).length)this.watchTimer=this.schedule(()=>void this.pollKeywords(),1000);
-    if(this.active('attendance')&&this.state.autoAttendance)this.attendanceTimer=this.schedule(()=>void this.attend(this.state.attendanceMode,true).catch(()=>{}),1000);
+  private restart(previous?:ExtensionsState) {
+    const enabled=(state:ExtensionsState,id:ExtensionId)=>state.installed.includes(id)&&state.enabled.includes(id);
+    const watch=(state:ExtensionsState)=>JSON.stringify([enabled(state,'keywords'),keywordGroups(state.watchWords),enabled(state,'block'),state.blocked]);
+    if(!previous||watch(previous)!==watch(this.state)){
+      this.epoch++;this.clear(this.watchTimer);this.watchTimer=undefined;
+      // One pending request owns continuation. Its finally schedules the new
+      // generation after completion instead of racing a second timer with it.
+      if(!this.watchPending&&this.active('keywords')&&keywordGroups(this.state.watchWords).length)this.watchTimer=this.schedule(()=>void this.pollKeywords(),1000);
+    }
+    if(!previous||JSON.stringify([enabled(previous,'office'),previous.officeKey,previous.officeTitle])!==JSON.stringify([this.active('office'),this.state.officeKey,this.state.officeTitle]))this.hooks.onBossKey?.(this.active('office'),this.getState());
+    if(!previous||JSON.stringify([enabled(previous,'attendance'),previous.autoAttendance,previous.attendanceMode])!==JSON.stringify([this.active('attendance'),this.state.autoAttendance,this.state.attendanceMode])){
+      this.clear(this.attendanceTimer);this.attendanceTimer=undefined;
+      if(this.active('attendance')&&this.state.autoAttendance)this.attendanceTimer=this.schedule(()=>void this.attend(this.state.attendanceMode,true).catch(()=>{}),1000);
+    }
   }
   accountChanged() {this.clear(this.attendanceTimer);if(this.active('attendance')&&this.state.autoAttendance)this.attendanceTimer=this.schedule(()=>void this.attend(this.state.attendanceMode,true).catch(()=>{}),1000);}
   dispose() {this.disposed=true;this.epoch++;this.clear(this.watchTimer);this.clear(this.attendanceTimer);this.hooks.onBossKey?.(false,this.getState());}
@@ -180,7 +189,7 @@ export class ExtensionsService {
       this.state.lastCheck=new Date(this.now()).toISOString();this.state.watchError=undefined;this.watchFailures=0;
       this.emit();for(const hit of hits)this.hooks.onMatch?.(hit);
     }catch(error){if(epoch===this.epoch&&!this.disposed){this.state.watchError=error instanceof Error?error.message:String(error);this.emit();if(delay===10000)delay=Math.min(120000,10000*2**Math.min(4,++this.watchFailures));}}
-    finally {this.watchPending=false;if(!this.disposed&&epoch===this.epoch&&this.active('keywords')&&keywordGroups(this.state.watchWords).length)this.watchTimer=this.schedule(()=>void this.pollKeywords(),delay);}
+    finally {this.watchPending=false;if(!this.disposed&&this.active('keywords')&&keywordGroups(this.state.watchWords).length){this.clear(this.watchTimer);this.watchTimer=this.schedule(()=>void this.pollKeywords(),epoch===this.epoch?delay:1000);}}
   }
   async attend(mode:'fixed'|'random'=this.state.attendanceMode,automatic=false):Promise<AttendanceResult> {
     if(this.attendancePending)return this.attendancePending;

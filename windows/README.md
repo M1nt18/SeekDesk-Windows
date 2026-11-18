@@ -1,12 +1,12 @@
-# SeekDesk Windows 0.1.4 · 开发说明
+# SeekDesk Windows 0.1.5 · 开发说明
 
 使用 Electron、React 和 TypeScript 移植 SeekDesk V1.0.0。上游参考提交为 `84e99c6cb24e66c5bbccb6382380ae72b9924d4b`，父目录的 Swift 源码保持原样。界面以四张原版截图为参考，保留原版导航和工具。
 
 详细功能、截图和首次使用指南见 [仓库首页 README](../README.md)。
 
-已打包的安装版和免安装版见 [v0.1.4 发布页](https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.4)。开发者首次获取或更新源码后执行 `npm ci` 和 `npm run build`；已有编译结果时可双击“启动调试版.cmd”运行。
+已打包的安装版和免安装版见 [v0.1.5 发布页](https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.5)。开发者首次获取或更新源码后执行 `npm ci` 和 `npm run build`；已有编译结果时可双击“启动调试版.cmd”运行。
 
-0.1.4 发布加载优化、存储故障保护、Pro 凭据加密与图片资源修复，保留 0.1.2 的资料库、自动续读和一键更新，见 [更新说明](docs/releases/v0.1.4.md)。0.1.2 安装版可检查并点“立即更新”；0.1.1 使用旧界面的下载和重启按钮，免安装版仍手动下载。
+0.1.5 发布加载优化、存储故障保护、Pro 凭据加密与图片资源修复，保留 0.1.2 的资料库、自动续读和一键更新，见 [更新说明](docs/releases/v0.1.5.md)。0.1.2 安装版可检查并点“立即更新”；0.1.1 使用旧界面的下载和重启按钮，免安装版仍手动下载。
 
 ## 当前功能
 
@@ -24,9 +24,9 @@
 - NSIS 安装器提供默认勾选的桌面和开始菜单快捷方式选项，普通重装可修复缺失图标；安装版支持 GitHub 稳定发布更新、校验、取消、重启续装与应用更新缓存清理。
 - 热评/获鸡腿回复优先，跨页热门楼层带 HOT 角标；回复编辑器右上角关闭后保留草稿。
 
-本轮逐项源码和验证对应关系见 [0.1.4 完整审计](docs/REVIEW-AND-PERFORMANCE-0.1.4.md)；此前记录保留于 [源码复核](docs/SOURCE-RECHECK-2026-11-14.md) 和 [资料库合并验收](docs/ALTERNATE-VERSION-COMPARISON.md)；较早记录保留于 [0.1.1 核对清单](docs/parity-audit.md) 与 [功能移植清单](docs/FEATURE-PARITY.md)。
+本轮逐项源码和验证对应关系见 [0.1.5 完整审计](docs/REVIEW-2026-11-18.md)；此前记录保留于 [源码复核](docs/SOURCE-RECHECK-2026-11-14.md) 和 [资料库合并验收](docs/ALTERNATE-VERSION-COMPARISON.md)；较早记录保留于 [0.1.1 核对清单](docs/parity-audit.md) 与 [功能移植清单](docs/FEATURE-PARITY.md)。
 
-此前 0.1.2 的资料卡、官网黑名单和串行 300 ms 资料请求继续保留，接口范围见 [Pro 接口记录](docs/PRO-API-AUDIT-2026-11-16.md)。本版提高版本号至 0.1.4，可由旧安装版检查升级。
+此前 0.1.2 的资料卡、官网黑名单和串行 300 ms 资料请求继续保留，接口范围见 [Pro 接口记录](docs/PRO-API-AUDIT-2026-11-16.md)。本版提高版本号至 0.1.5，可由旧安装版检查升级。
 
 ## 登录与数据
 
@@ -42,7 +42,7 @@ NodeImage 上传需要用户配置自己的 API Key。普通图片支持调整�
 
 ## 开发与验证
 
-2026-11-17 的工作区审计和 0.1.4 修复见 [完整记录](docs/REVIEW-AND-PERFORMANCE-0.1.4.md)。`95fb1a3` 的新布局已保留，并补充失败、取消、连续操作及退出草稿回归；0.1.2 的旧安装文件保持原样，修复包含在本版。
+2026-11-17 的工作区审计和 0.1.5 修复见 [完整记录](docs/REVIEW-2026-11-18.md)。`95fb1a3` 的新布局已保留，并补充失败、取消、连续操作及退出草稿回归；0.1.2 的旧安装文件保持原样，修复包含在本版。
 
 Windows 10/11 x64，Node.js 22.12+。在本目录使用 cmd.exe：
 
@@ -73,7 +73,7 @@ npm run test:installer-options
 - `test:desktop`：隔离配置中的关闭与托盘、窗口记忆、热门回复和编辑器关闭回归；更新器使用隔离缓存与可注入适配器验证取消、校验、重启恢复和缓存清理。
 - `test:installer-options`：使用 electron-builder 的 NSIS 模板编译安装器/卸载器分支，不执行安装。
 
-0.1.4 的 290 项单元/契约测试通过，并完成资料/分页、个人空间、通知私信及既有界面回归。真正打包的 0.1.4 程序已用隔离配置启动与重启验证，安装器载荷静态核对通过；未在使用者系统执行真实安装或升级。此前匿名正文读取成功，资料接口返回 403 验证页，线上等级仍需在官方窗口登录或验证后验收。详细范围见 [本轮审计](docs/REVIEW-AND-PERFORMANCE-0.1.4.md)，此前的 [源码复核](docs/SOURCE-RECHECK-2026-11-14.md) 与 [合并验收](docs/ALTERNATE-VERSION-COMPARISON.md) 继续保留；旧桌面改进保留于 [重新打包说明](docs/DESKTOP-UNRELEASED.md)。
+0.1.5 的 312 项单元/契约测试通过，并完成资料/分页、个人空间、通知私信及既有界面回归。真正打包的 0.1.5 程序已用隔离配置启动与重启验证，安装器载荷静态核对通过；未在使用者系统执行真实安装或升级。此前匿名正文读取成功，资料接口返回 403 验证页，线上等级仍需在官方窗口登录或验证后验收。详细范围见 [本轮审计](docs/REVIEW-2026-11-18.md)，此前的 [源码复核](docs/SOURCE-RECHECK-2026-11-14.md) 与 [合并验收](docs/ALTERNATE-VERSION-COMPARISON.md) 继续保留；旧桌面改进保留于 [重新打包说明](docs/DESKTOP-UNRELEASED.md)。
 
 报告与截图写入 `verification/`。真实账号的登录、权限和发帖结果仍需用户在官方会话下验收；测试没有使用用户已有的 Cookie，也没有向真实论坛发送测试帖子、回复、私信、互动或签到。
 
