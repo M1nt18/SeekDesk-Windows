@@ -14,6 +14,8 @@ interface SerializedFormEntry {name:string;value?:string;bytes?:number[];filenam
 export interface UserscriptRequest {url:string;method?:string;headers?:Record<string,string>;data?:string;form?:SerializedFormEntry[];responseType?:string;timeout?:number}
 
 export function adaptUserscriptSource(source:string):string {
+  // Git checkouts may use CRLF. Normalize the runtime copy, never the pinned asset.
+  source=source.replace(/\r\n?/g,'\n');
   // The original helper recognizes only HTTP stylesheet URLs, while the GM
   // resource API returns local data URLs. Runtime adapters stay explicit;
   // the vendored original remains untouched and hash-verifiable.

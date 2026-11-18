@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import fsp from 'node:fs/promises';
 import {JSDOM,VirtualConsole} from 'jsdom';
-import {buildUserscriptRuntime,initialUserscriptValues,validateUserscriptRequest,UserscriptHost,publicUserscriptValues} from '../electron/userscripts';
+import {adaptUserscriptSource,buildUserscriptRuntime,initialUserscriptValues,validateUserscriptRequest,UserscriptHost,publicUserscriptValues} from '../electron/userscripts';
 import {createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
 
 function protectedFixture(directory:string,options:Partial<ConstructorParameters<typeof UserscriptHost>[0]>={}){
@@ -103,6 +103,15 @@ test('GM storage accepts only the enabled official top frame, rejects prototype 
     assert.deepEqual(saved.probe,{literal:"$& $` $'"});
     enabled=false;assert.throws(()=>set(event,'settings',{}));
   } finally {await fsp.rm(directory,{recursive:true,force:true});}
+});
+
+test('pinned runtime adaptation accepts LF and Windows CRLF without modifying the original asset',()=>{
+  const original=fs.readFileSync(path.resolve(__dirname,'../vendor/nodeseek-pro/nodeseek-pro.user.js'),'utf8');
+  const lf=original.replace(/\r\n?/g,'\n');
+  const adapted=adaptUserscriptSource(lf);
+  assert.equal(adaptUserscriptSource(lf.replace(/\n/g,'\r\n')),adapted);
+  assert.match(adapted,/官网整站备份暂不支持/);
+  assert.equal(fs.readFileSync(path.resolve(__dirname,'../vendor/nodeseek-pro/nodeseek-pro.user.js'),'utf8'),original);
 });
 
 test('pinned NodeSeek Pro executes menus and settings against shared DOM without a main-world bridge',async()=>{
