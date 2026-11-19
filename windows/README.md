@@ -80,3 +80,5 @@ npm run test:installer-options
 发布包使用明确的文件白名单，不包含测试配置、运行日志或源码映射。`scripts/audit-release.cjs` 检查实际 ASAR/依赖和隐私内容；`scripts/check-installer.cjs` 静态解包安装器并核对载荷；`scripts/release-smoke.cjs` 用全新隔离配置运行真正打包的程序。源码归档通过 `git archive` 仅包含已提交文件。
 
 项目按 GPL-3.0-only 提供；上游作者、社区服务、品牌资源及依赖声明见 [NOTICE.md](NOTICE.md) 和父目录 LICENSE。
+
+后续安装版在“设置 → 关于”使用增量更新。发布时将构建生成的 `Setup.exe.blockmap`（完整文件名含版本号）与安装包、`latest.yml` 一同上传并保留历版索引。客户端复用 NSIS 缓存的当前安装包，按需下载变化的数据块，完整校验后重启更新。差分不可用时会提示重试或手动下载。

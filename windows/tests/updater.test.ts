@@ -171,7 +171,7 @@ test('native updater uses the public stable repository and requires explicit dow
     assert.deepEqual(f.native.feed,{provider:'github',owner:'M1nt18',repo:'SeekDesk-Windows',private:false,releaseType:'release'});
     assert.equal(f.native.autoDownload,false);assert.equal(f.native.autoInstallOnAppQuit,false);
     assert.equal(f.native.allowPrerelease,false);assert.equal(f.native.allowDowngrade,false);
-    assert.equal(f.native.disableWebInstaller,true);assert.equal(f.native.disableDifferentialDownload,true);
+    assert.equal(f.native.disableWebInstaller,true);assert.equal(f.native.disableDifferentialDownload,false);
     assert.equal(f.native.logger,null);assert.equal(f.native.requestHeaders,null);
     const checked=await f.service.check();assert.equal(checked.status,'available');assert.equal(checked.installable,true);assert.equal(checked.canDownload,true);
     assert.equal(f.native.downloads,0);assert.equal(f.native.installCalls.length,0);

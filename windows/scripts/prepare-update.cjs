@@ -12,11 +12,15 @@ async function prepareUpdate(output=path.join(project,pkg.build.directories.outp
   const filename=`SeekDesk-Windows-${pkg.version}-x64-Setup.exe`,artifact=path.join(directory,filename);
   const stat=await fs.lstat(artifact);
   if(!stat.isFile()||stat.isSymbolicLink()||stat.size<1_000_000)throw Error('缺少已构建的完整 x64 安装程序');
+  const blockmap=filename+'.blockmap';
+  const map=JSON.parse(require('node:zlib').gunzipSync(await fs.readFile(path.join(directory,blockmap))).toString('utf8'));
+  if(!Array.isArray(map.files)||map.files.length!==1||map.files[0].sizes?.length!==map.files[0].checksums?.length||
+     map.files[0].sizes.reduce((sum,size)=>sum+size,0)!==stat.size)throw Error('安装包和差分索引不匹配，请重新构建');
   const hash=createHash('sha512');for await(const chunk of createReadStream(artifact))hash.update(chunk);
   const sha512=hash.digest('base64');
   const yaml=`version: ${pkg.version}\nfiles:\n  - url: ${filename}\n    sha512: ${sha512}\n    size: ${stat.size}\npath: ${filename}\nsha512: ${sha512}\nreleaseDate: '${new Date().toISOString()}'\n`;
   const target=path.join(directory,'latest.yml');await fs.writeFile(target+'.tmp',yaml,'utf8');await fs.rename(target+'.tmp',target);
-  return {version:pkg.version,file:filename,size:stat.size,sha512,metadata:'latest.yml'};
+  return {version:pkg.version,file:filename,size:stat.size,sha512,metadata:'latest.yml',blockmap};
 }
 module.exports={prepareUpdate};
 if(require.main===module)prepareUpdate(process.argv[2]).then(result=>console.log(JSON.stringify(result))).catch(error=>{console.error(error.message);process.exitCode=1;});

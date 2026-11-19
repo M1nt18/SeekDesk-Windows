@@ -97,7 +97,24 @@ export function createIsolatedNativeUpdater(cacheDirectory:string,appAdapter?:Ap
   const {NsisUpdater}=require('electron-updater') as typeof import('electron-updater');
   const {DownloadedUpdateHelper}=require('electron-updater/out/DownloadedUpdateHelper') as typeof import('electron-updater/out/DownloadedUpdateHelper');
   class IsolatedNsisUpdater extends NsisUpdater {
-    constructor(){super(undefined,appAdapter);this.downloadedUpdateHelper=new DownloadedUpdateHelper(cacheDirectory);}
+    constructor(){
+      super(undefined,appAdapter);
+      // NSIS keeps the last installed Setup.exe as installer.exe under LocalAppData.
+      // Keep downloads and receipts in SeekDesk's existing isolated pending directory.
+      class InstallerCache extends DownloadedUpdateHelper {
+        override get cacheDirForPendingUpdate(){return path.join(cacheDirectory,'pending');}
+      }
+      this.downloadedUpdateHelper=new InstallerCache(path.join(this.app.baseCachePath,'seekdesk-windows-updater'));
+    }
+    protected override async differentialDownloadInstaller(...args:Parameters<InstanceType<typeof NsisUpdater>['differentialDownloadInstaller']>){
+      // A previous download can have completed without ever being installed.
+      // Always plan against the published map for the running version.
+      await fs.rm(path.join(this.downloadedUpdateHelper!.cacheDir,'current.blockmap'),{force:true});
+      if(await super.differentialDownloadInstaller(...args)){
+        throw Object.assign(new Error('增量更新不可用'),{code:'DIFFERENTIAL_UNAVAILABLE'});
+      }
+      return false;
+    }
     resetAfterInstallError(){this.quitAndInstallCalled=false;}
     async restoreVerifiedDownload(download:VerifiedDownload){
       const expected=manifestFile({version:download.version,files:[{url:download.file,sha512:download.sha512,isAdminRightsRequired:download.isAdminRightsRequired}]});
@@ -176,7 +193,7 @@ export class UpdaterService {
       await this.cleanup();
       if(!this.available()||this.disposed)return;
       this.native=(this.options.nativeFactory||createIsolatedNativeUpdater)(this.cache);
-      Object.assign(this.native,{autoDownload:false,autoInstallOnAppQuit:false,allowPrerelease:false,allowDowngrade:false,disableWebInstaller:true,disableDifferentialDownload:true,logger:null,requestHeaders:null});
+      Object.assign(this.native,{autoDownload:false,autoInstallOnAppQuit:false,allowPrerelease:false,allowDowngrade:false,disableWebInstaller:true,disableDifferentialDownload:false,logger:null,requestHeaders:null});
       this.native.setFeedURL({provider:'github',owner:'M1nt18',repo:'SeekDesk-Windows',private:false,releaseType:'release'});
       this.listen('download-progress',progress=>{
         if(this.state.status!=='downloading')return;
@@ -292,7 +309,7 @@ export class UpdaterService {
       assertDownloadAllowed();
       this.token=this.options.cancellationFactory?.()||new (require('builder-util-runtime').CancellationToken)();
       started=true;
-      this.emit({status:'downloading',errorCode:undefined,message:'正在下载并校验安装包',progress:{percent:0,bytesPerSecond:0,transferred:0,total:0}});
+      this.emit({status:'downloading',errorCode:undefined,message:'正在下载变更部分并校验更新',progress:{percent:0,bytesPerSecond:0,transferred:0,total:0}});
       const files=await this.native!.downloadUpdate(this.token!);
       assertDownloadAllowed();
       if(this.token!.cancelled)throw Object.assign(new Error('cancelled'),{code:'CANCELLED'});
@@ -310,7 +327,7 @@ export class UpdaterService {
       const cancelled=this.token?.cancelled||errorCode(error)==='CANCELLED';
       // Wait until the native download settles before removing partial files.
       if(started){this.receipt=undefined;await this.clearPending().catch(()=>{});}
-      this.emit({status:cancelled?'cancelled':'error',errorCode:cancelled?undefined:verificationError(error)?'verification':'download',message:cancelled?'已取消下载，可重新下载':verificationError(error)?'安装包校验失败，已删除，请重新下载':'下载失败，已清理临时文件，请重试',progress:undefined,installable:true});
+      this.emit({status:cancelled?'cancelled':'error',errorCode:cancelled?undefined:verificationError(error)?'verification':'download',message:cancelled?'已取消下载，可重新下载':verificationError(error)?'安装包校验失败，已删除，请重新下载':errorCode(error)==='DIFFERENTIAL_UNAVAILABLE'?'无法完成增量下载，可重试或前往发布页下载完整安装包':'下载失败，已清理临时文件，请重试',progress:undefined,installable:true});
     }
     return this.getState();
   }
