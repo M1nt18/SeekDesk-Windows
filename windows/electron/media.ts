@@ -29,7 +29,12 @@ export class MediaService{
   async load(){try{const row=JSON.parse(await (this.dependencies.readFile||fs.readFile)(path.join(this.directory,'media.json'),'utf8'));if(!row||typeof row!=='object'||Array.isArray(row))throw Error('invalid media config');if(row.key!==undefined&&typeof row.key!=='string')throw Error('invalid media credential');if(typeof row.key==='string'){this.keyCipher=row.key;if(this.encryption.isEncryptionAvailable())try{this.key=this.encryption.decryptString(Buffer.from(row.key,'base64'));}catch{/* Retain the opaque ciphertext until explicit replacement/removal. */}}this.width=validWidth(row.width??0);if(Array.isArray(row.stickers))this.stickers=row.stickers.slice(0,1000).filter((s:LocalSticker)=>s&&/^[a-f0-9-]{36}$/.test(s.id)&&typeof s.name==='string'&&typeof s.group==='string'&&/^[a-f0-9-]{36}\.(png|jpg|jpeg|gif|webp|bmp)$/.test(s.file)&&Object.values(mimes).includes(s.mime));}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')this.problem='图床配置无法读取，原文件已保留；请修复后重新启动应用';}}
   settings():MediaSettings{return {hasApiKey:!!this.key,defaultImageWidth:this.width,...(this.keyCipher&&!this.key?{credentialError:'已保存的图床密钥暂时无法解密，密文已保留；请重新配置或明确清除'}:{}),...(this.problem?{storageWarning:this.problem}:{})};}
   private async publicImage(input:string,signal=AbortSignal.timeout(30000)){
-    let url=await publicImageUrl(input);
+    const source=new URL(await publicImageUrl(input));
+    // Speedtest permanently redirects its old mobile result PNG links on the same host.
+    if(source.origin==='https://www.speedtest.net'&&!source.search&&/^\/my-result\/a\/\d+\.png$/.test(source.pathname)){
+      source.pathname=source.pathname.replace('/my-result/','/result/');
+    }
+    let url=source.href;
     for(let hop=0;hop<=3;hop++){
       let response:Response;try{response=await (this.dependencies.fetchImage||fetch)(url,{method:'GET',credentials:'omit',redirect:'manual',cache:'no-cache',signal});}catch{if(signal.aborted)throw Error('图片读取已取消或超时');throw Error('图片连接失败，请重试或查看原图；客户端将沿用系统代理与证书设置');}
       if([301,302,303,307,308].includes(response.status)){

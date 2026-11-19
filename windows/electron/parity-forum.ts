@@ -43,6 +43,7 @@ export function validateWriteRequest(input:unknown):ForumWriteRequest{
     }
     case 'edit':{const target=floor(row.floor);return {kind:row.kind,url:normalizePostUrl(row.url),floor:target,content:string(row.content,200000,'正文'),...(target!=='0'||row.title===undefined?{}:{title:string(row.title,500,'标题')})};}
     case 'profile':return {kind:row.kind,original:introduction(row.original),draft:introduction(row.draft)};
+    case 'mark-category-read':return {kind:row.kind,category:section(row.category,['mentions','replies','messages']) as 'mentions'|'replies'|'messages'};
     case 'mark-read':return {kind:row.kind,category:section(row.category,['mentions','replies','messages']) as 'mentions'|'replies'|'messages',id:positive(row.id,'通知编号')};
     case 'attendance':return {kind:row.kind,mode:section(row.mode,['fixed','random']) as 'fixed'|'random'};
     default:throw new Error('不支持的提交操作');
@@ -245,13 +246,22 @@ export function createWriteScript(input:unknown,expectedUid:number):string{
         const next={...latest};for(const field of updates)next[field]=request.draft[field];
         if(updates.length)await post('/api/account/introduction',next);return {message:updates.length?'个人资料已保存':'没有需要保存的修改',introduction:next};
       }
-      if(request.kind==='mark-read'){
-        let ids=[request.id];if(request.category==='messages'){
+      if(request.kind==='mark-read'||request.kind==='mark-category-read'){
+        const paths={mentions:['at-me','atMe'],replies:['reply-to-me','replys'],messages:['message','messages']};
+        const [path,field]=paths[request.category];
+        let ids=[request.id];
+        if(request.kind==='mark-category-read'){
+          const data=await get('/api/notification/'+path+'/list');
+          const messages=request.category==='messages';
+          const rows=messages?data.msgArray:data.data;
+          if(!Array.isArray(rows))throw new Error('未能读取未读消息列表');
+          ids=[...new Set(rows.filter(row=>!flag(row.viewed)&&(!messages||Number(row.receiver_id)===owner&&Number(row.sender_id)!==owner)).map(row=>integer(row.id)))];
+          if(ids.some(id=>!id||id<1))throw new Error('无法确认未读消息编号，请刷新后重试');
+        }else if(request.category==='messages'){
           const data=await get('/api/notification/message/with/'+request.id);if(!Array.isArray(data.msgArray))throw new Error('无法确认私信记录');
           ids=[...new Set(data.msgArray.filter(row=>Number(row.sender_id)===request.id&&Number(row.receiver_id)===owner&&[0,'0',false].includes(row.viewed)).map(row=>integer(row.id)).filter(id=>id&&id>0))];
         }
         if(!ids.length)return {message:'消息已读'};
-        const paths={mentions:['at-me','atMe'],replies:['reply-to-me','replys'],messages:['message','messages']},[path,field]=paths[request.category];
         await post('/api/notification/'+path+'/markViewed',{[field]:ids});return {message:'已标记为已读'};
       }
       if(request.kind==='attendance'){

@@ -169,14 +169,15 @@ async function loadApp(){
   assert.equal(messageEditor().value,'**literal** <b>text</b>');await click(button('发送私信'));assert.equal(messageEditor().value,'**literal** <b>text</b>');assert.equal(button('发送私信').disabled,false);assert.equal(fixture.actions[0].markdown,false);assert.equal(fixture.actions[0].content,'**literal** <b>text</b>');assert.ok(fixture.notices.includes('Synthetic send rejection'));
   reject=false;await click(button('发送私信'));assert.equal(messageEditor().value,'');assert.equal(fixture.actions.length,2);
  });
- await check('Notice selection preserves unread state and explicit mark-read retries failures',async()=>{
+ await check('Opening a notice marks it read and a rejected update remains retryable',async()=>{
   let rejected=true,read=0;
   dom.window.seekdesk.queryForum=async()=>({notices:[{id:'71',author:'Peer',authorId:32,title:'Synthetic notice',date:'',unread:true,postId:100001,floor:1,url:posts[0].url+'#1'}]});
   dom.window.seekdesk.readThread=async()=>({id:'100001',url:posts[0].url,title:'Synthetic notice',source:'web',page:1,nextPage:null,comments:[{id:'1',author:'Peer',date:'',floor:'#1',html:'<p>Exact notice floor</p>'}]});
   dom.window.seekdesk.writeForum=async request=>{fixture.actions.push(request);if(rejected)throw Error('Synthetic mark rejection');return {message:'Synthetic acceptance'};};
-  await render(React.createElement(NotificationsPanel,{...props(),onRead:()=>read++,unread:{mentions:1,replies:0,messages:0}}));await click('.notice-content');assert.equal(document.querySelector('.notification-row').classList.contains('unread'),true);assert.equal(fixture.actions.length,0);assert.match(document.querySelector('.notice-reply-preview').textContent,/Exact notice floor/);
-  await click('.inbox-read-button');assert.equal(document.querySelector('.notification-row').classList.contains('unread'),true);assert.match(document.querySelector('[role="alert"]').textContent,/Synthetic mark rejection/);assert.equal(read,0);
+  await render(React.createElement(NotificationsPanel,{...props(),onRead:()=>read++,unread:{mentions:1,replies:0,messages:0}}));await click('.notice-content');assert.equal(document.querySelector('.notification-row').classList.contains('unread'),true);assert.equal(fixture.actions.length,1);assert.match(document.querySelector('.notice-reply-preview').textContent,/Exact notice floor/);
+  assert.equal(document.querySelector('.notification-row').classList.contains('unread'),true);assert.match(document.querySelector('[role="alert"]').textContent,/Synthetic mark rejection/);assert.equal(read,0);
   rejected=false;await click('.inbox-read-button');assert.equal(document.querySelector('.notification-row').classList.contains('unread'),false);assert.equal(document.querySelector('.inbox-read-button'),null);assert.equal(read,1);assert.equal(fixture.actions.length,2);
+  await click(button('全部已读'));assert.deepEqual(fixture.actions.slice(2).map(row=>[row.kind,row.category]),[['mark-category-read','mentions'],['mark-category-read','replies'],['mark-category-read','messages']]);
  });
  await check('Topic confirmation retains the draft and only confirmed publication clears it',async()=>{
   dom.window.seekdesk.writeForum=async request=>{fixture.actions.push(request);return request.confirmed?{message:'Synthetic acceptance',url:posts[0].url,postId:Number(posts[0].id)}:{message:'Confirm',confirmation:'Synthetic publication confirmation'};};

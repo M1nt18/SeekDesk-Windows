@@ -32,6 +32,18 @@ test('mark-read derives actual incoming message IDs, never peer IDs or outgoing/
   const f=fixture(async(url)=>response(url.includes('/with/')?{success:true,msgArray:[{id:100,sender_id:77,receiver_id:42,viewed:0},{id:101,sender_id:77,receiver_id:42,viewed:1},{id:102,sender_id:42,receiver_id:77,viewed:0},{id:103,sender_id:77,receiver_id:88,viewed:0}]}:{success:true}));
   try{await f.write({kind:'mark-read',category:'messages',id:77});assert.equal(f.calls[1].url,'/api/notification/message/markViewed');assert.deepEqual(JSON.parse(f.calls[1].options.body),{messages:[100]});}finally{f.page.window.close();}
 });
+test('bulk read posts only unique unread notice IDs and current-owner incoming message IDs',async()=>{
+  for(const [category,path,field] of [['mentions','at-me','atMe'],['replies','reply-to-me','replys'],['messages','message','messages']] as const){
+    const rows=[{id:7,viewed:false,sender_id:77,receiver_id:42},{id:7,viewed:'0',sender_id:77,receiver_id:42},{id:8,viewed:1,sender_id:77,receiver_id:42}];
+    const payload=category==='messages'?{msgArray:[...rows,{id:9,viewed:false,sender_id:42,receiver_id:77}]}:{data:rows};
+    const f=fixture(async url=>response(url.endsWith('/list')?{success:true,...payload}:{success:true}));
+    try{
+      await f.write({kind:'mark-category-read',category});
+      assert.deepEqual(f.calls.map(call=>call.url),['/api/notification/'+path+'/list','/api/notification/'+path+'/markViewed']);
+      assert.deepEqual(JSON.parse(f.calls[1].options.body),{[field]:[7]});
+    }finally{f.page.window.close();}
+  }
+});
 test('edit revalidates ownership, floor and genuine comment ID on the official post',async()=>{
   const f=fixture();try{
     const source=await f.query({kind:'edit-source',url:'https://www.nodeseek.com/post-123-1',floor:'8'});assert.equal(source.edit.content,'原始回复');

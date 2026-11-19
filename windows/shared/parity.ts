@@ -24,6 +24,7 @@ export type ForumWriteRequest=
  |{kind:'new-topic';title:string;content:string;category:string;rank:number;confirmed?:boolean}
  |{kind:'edit';url:string;floor:string;content:string;title?:string;category?:string;rank?:number}
  |{kind:'profile';original:Introduction;draft:Introduction}
+ |{kind:'mark-category-read';category:'mentions'|'replies'|'messages'}
  |{kind:'mark-read';category:'mentions'|'replies'|'messages';id:number}
  |{kind:'attendance';mode:'fixed'|'random'};
 export interface ForumWriteResult {message:string;url?:string;postId?:number;floor?:number;confirmation?:string;introduction?:Introduction;attendance?:AttendanceResult}
