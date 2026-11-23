@@ -158,7 +158,7 @@ async function establishGuest() {
     assert.ok(match, 'Unexpected updater configuration line');
     return [match[1], match[2]];
   }));
-  assert.deepEqual(updateConfiguration, { provider: 'github', owner: 'M1nt18', repo: 'SeekDesk-Windows', private: 'false', releaseType: 'release', updaterCacheDirName: 'updater-cache-v1' });
+  assert.deepEqual(updateConfiguration, { provider: 'github', owner: 'M1nt18', repo: 'SeekDesk-Windows', private: 'false', releaseType: 'release', updaterCacheDirName: 'seekdesk-windows-updater' });
   check('Shipped app-update.yml targets the public M1nt18/SeekDesk-Windows release repository and contains no credential fields', { provider: updateConfiguration.provider, owner: updateConfiguration.owner, repo: updateConfiguration.repo, private: false });
   const runtime = await launch();
   assert.equal(runtime.packaged, true);
