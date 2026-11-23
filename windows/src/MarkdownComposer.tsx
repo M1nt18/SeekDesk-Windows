@@ -1,6 +1,6 @@
 import {useEffect,useLayoutEffect,useRef,useState} from 'react';
 import type {ClipboardEvent,DragEvent,KeyboardEvent} from 'react';
-import {Bold,Italic,Strikethrough,Code,Quote,List,ListOrdered,Table,Heading2,Link,Image,Minus,FileCode,Undo2,Redo2,Trash2,Smile,Upload,Settings,Maximize2,Minimize2} from 'lucide-react';
+import {AlertCircle,Bold,Italic,Strikethrough,Code,Quote,List,ListOrdered,Table,Heading2,Link,Image,KeyRound,Minus,FileCode,Undo2,Redo2,Trash2,Smile,Upload,Settings,Maximize2,Minimize2} from 'lucide-react';
 import type {StickerItem} from '../shared/parity';
 import {applyMarkdownCommand,renderMarkdown} from './markdown';
 import type {MarkdownCommand} from './markdown';
@@ -15,7 +15,7 @@ export interface MarkdownComposerProps{
 const tools:{command:MarkdownCommand;label:string;icon:typeof Bold}[]=[{command:'heading',label:'标题',icon:Heading2},{command:'bold',label:'加粗',icon:Bold},{command:'italic',label:'斜体',icon:Italic},{command:'strike',label:'删除线',icon:Strikethrough},{command:'code',label:'行内代码',icon:Code},{command:'quote',label:'引用',icon:Quote},{command:'bullets',label:'无序列表',icon:List},{command:'numbers',label:'有序列表',icon:ListOrdered},{command:'codeBlock',label:'代码块',icon:FileCode},{command:'table',label:'表格',icon:Table},{command:'divider',label:'分割线',icon:Minus},{command:'link',label:'链接',icon:Link},{command:'image',label:'图片链接',icon:Image}];
 
 export function MarkdownComposer({value,onChange,onSubmit,disabled=false,busy=false,initialMode='edit',label='正文',placeholder='写下你的回复…',sendShortcut='ctrl-enter',onUpload,stickers:providedStickers,onImportStickers,onMediaSettings,imageWidths:providedWidths,onImageWidthsChange,focusRequest}:MarkdownComposerProps){
-  const [mode,setMode]=useState(initialMode),[expanded,setExpanded]=useState(false),[uploading,setUploading]=useState(false),[message,setMessage]=useState(''),[picker,setPicker]=useState(false),[group,setGroup]=useState('ac'),[stickers,setStickers]=useState<StickerItem[]>(providedStickers||[]),[localWidths,setLocalWidths]=useState<Record<string,number>>({}),[selectedImage,setSelectedImage]=useState<string>(),[uploadWidth,setUploadWidth]=useState<number|undefined>();
+  const [mode,setMode]=useState(initialMode),[expanded,setExpanded]=useState(false),[uploading,setUploading]=useState(false),[message,setMessage]=useState(''),[messageTone,setMessageTone]=useState<'info'|'error'>('info'),[needsApiKey,setNeedsApiKey]=useState(false),[picker,setPicker]=useState(false),[group,setGroup]=useState('ac'),[stickers,setStickers]=useState<StickerItem[]>(providedStickers||[]),[localWidths,setLocalWidths]=useState<Record<string,number>>({}),[selectedImage,setSelectedImage]=useState<string>(),[uploadWidth,setUploadWidth]=useState<number|undefined>();
   const textarea=useRef<HTMLTextAreaElement>(null),files=useRef<HTMLInputElement>(null),valueRef=useRef(value),selection=useRef({start:value.length,end:value.length}),history=useRef([value]),historyIndex=useRef(0),historyChange=useRef(false);valueRef.current=value;
   const widths=providedWidths||localWidths,locked=disabled||busy||uploading;
   const focusPending=useRef(false);
@@ -33,20 +33,34 @@ export function MarkdownComposer({value,onChange,onSubmit,disabled=false,busy=fa
   const command=(command:MarkdownCommand)=>{if(locked||mode==='preview')return;const edit=applyMarkdownCommand(valueRef.current,selection.current.start,selection.current.end,command);commit(edit.text,edit.start,edit.end);};
   const undo=(redo=false)=>{const index=historyIndex.current+(redo?1:-1);if(index<0||index>=history.current.length)return;historyIndex.current=index;historyChange.current=true;commit(history.current[index]);};
   const setWidths=(next:Record<string,number>)=>{setLocalWidths(next);onImageWidthsChange?.(next);};
+  const showUploadError=(error:unknown)=>{
+    const raw=error instanceof Error?error.message:String(error);
+    const text=raw.replace(/^Error invoking remote method '[^']+': (Error: )?/,'');
+    setMessageTone('error');setMessage(text);
+    if(/NodeImage\s*API\s*Key|图床密钥|API\s*Key/i.test(text))setNeedsApiKey(true);
+  };
+  const openFilePicker=async()=>{
+    remember();
+    try{
+      const media=await window.seekdesk.getMediaSettings?.();
+      if(mounted.current&&media&&!media.hasApiKey){setNeedsApiKey(true);setMessageTone('error');setMessage('请先填写 NodeImage API Key 后再上传图片');return;}
+    }catch{}
+    if(mounted.current)files.current?.click();
+  };
   const upload=async(file:File)=>{
-    if(locked||uploadPending.current||!mounted.current)return;if(!file.type.startsWith('image/')){setMessage('请选择图片文件');return;}uploadPending.current=true;const finish=beginComposerUpload();setUploading(true);setMessage('正在上传到 NodeImage…');
+    if(locked||uploadPending.current||!mounted.current)return;if(!file.type.startsWith('image/')){setMessageTone('error');setMessage('请选择图片文件');return;}uploadPending.current=true;const finish=beginComposerUpload();setUploading(true);setNeedsApiKey(false);setMessageTone('info');setMessage('正在上传到 NodeImage…');
     const before=valueRef.current,at={...selection.current};
     try{
       const url=onUpload?await onUpload(file,uploadWidth): (await window.seekdesk.uploadImage({name:file.name||'clipboard.png',mime:file.type,bytes:new Uint8Array(await file.arrayBuffer()),width:uploadWidth})).url;
       if(!mounted.current)return;
       if(valueRef.current===before)selection.current=at;else remember();
-      insert('!['+(file.name||'图片').replace(/[\[\]\\]/g,'')+'](<'+url+'>)');if(uploadWidth)setWidths({...widths,[url]:uploadWidth});setMessage('图片已插入');
-    }catch(error){if(mounted.current)setMessage(error instanceof Error?error.message:String(error));}finally{uploadPending.current=false;finish();if(mounted.current)setUploading(false);}
+      insert('!['+(file.name||'图片').replace(/[\[\]\\]/g,'')+'](<'+url+'>)');if(uploadWidth)setWidths({...widths,[url]:uploadWidth});setMessageTone('info');setMessage('图片已插入');
+    }catch(error){if(mounted.current)showUploadError(error);}finally{uploadPending.current=false;finish();if(mounted.current)setUploading(false);}
   };
   const chooseSticker=async(sticker:StickerItem)=>{
     if(locked||uploadPending.current||!mounted.current)return;setPicker(false);
     if(sticker.official){insert(' '+sticker.name+' ');return;}
-    uploadPending.current=true;const finish=beginComposerUpload();setUploading(true);setMessage('正在上传表情…');try{const result=await window.seekdesk.uploadSticker(sticker.id);if(!mounted.current)return;insert('!['+sticker.name.replace(/[\[\]\\]/g,'')+'](<'+result.url+'>)');setMessage('表情已插入');}catch(error){if(mounted.current)setMessage(error instanceof Error?error.message:String(error));}finally{uploadPending.current=false;finish();if(mounted.current)setUploading(false);}
+    uploadPending.current=true;const finish=beginComposerUpload();setUploading(true);setNeedsApiKey(false);setMessageTone('info');setMessage('正在上传表情…');try{const result=await window.seekdesk.uploadSticker(sticker.id);if(!mounted.current)return;insert('!['+sticker.name.replace(/[\[\]\\]/g,'')+'](<'+result.url+'>)');setMessageTone('info');setMessage('表情已插入');}catch(error){if(mounted.current)showUploadError(error);}finally{uploadPending.current=false;finish();if(mounted.current)setUploading(false);}
   };
   const paste=(event:ClipboardEvent<HTMLTextAreaElement>)=>{const file=[...event.clipboardData.files].find(file=>file.type.startsWith('image/'));if(file&&!event.clipboardData.getData('text/plain')){event.preventDefault();remember();void upload(file);}};
   const drop=(event:DragEvent<HTMLTextAreaElement>)=>{if(event.dataTransfer.files.length)event.preventDefault();const file=[...event.dataTransfer.files].find(file=>file.type.startsWith('image/'));if(file){remember();void upload(file);}else if(event.dataTransfer.files.length)setMessage('请选择图片文件');};
@@ -58,7 +72,7 @@ export function MarkdownComposer({value,onChange,onSubmit,disabled=false,busy=fa
   };
   return <div className={'md-composer'+(expanded?' md-expanded':'')}>
     <div className="md-toolbar"><div className="md-toolbar-main">
-      <button type="button" disabled={locked||mode==='preview'} onClick={()=>{remember();files.current?.click();}} title="上传图片，也可粘贴或拖入图片"><Upload size={16}/><span>上传图片</span></button>
+      <button type="button" disabled={locked||mode==='preview'} onClick={()=>void openFilePicker()} title="上传图片，也可粘贴或拖入图片"><Upload size={16}/><span>上传图片</span></button>
       <button type="button" disabled={locked||mode==='preview'} onClick={()=>setPicker(!picker)} aria-expanded={picker}><Smile size={16}/><span>表情包</span></button>
       <button type="button" disabled={locked} onClick={onMediaSettings} title="图床密钥与表情设置" aria-label="图床与表情设置"><Settings size={15}/></button>
       <i/><button type="button" disabled={locked||mode==='preview'||historyIndex.current<1} onClick={()=>undo()} title="撤销 Ctrl+Z" aria-label="撤销"><Undo2 size={16}/></button>
@@ -67,13 +81,14 @@ export function MarkdownComposer({value,onChange,onSubmit,disabled=false,busy=fa
       <div className="md-mode" role="group" aria-label="编辑器视图">{([['edit','仅编辑'],['split','对照'],['preview','仅预览']] as const).map(([id,text])=><button type="button" key={id} aria-pressed={mode===id} disabled={disabled||busy} onClick={()=>setMode(id)}>{text}</button>)}</div>
       <button type="button" onClick={()=>setExpanded(!expanded)} title={expanded?'恢复编辑区高度':'展开编辑区'} aria-label={expanded?'恢复编辑区高度':'展开编辑区'}>{expanded?<Minimize2 size={16}/>:<Maximize2 size={16}/>}</button>
     </div><div className="md-format-tools">{tools.map(({command:id,label,icon:Icon})=><button type="button" disabled={locked||mode==='preview'} key={id} onMouseDown={event=>event.preventDefault()} onClick={()=>command(id)} title={label} aria-label={label}><Icon size={15}/><span>{label}</span></button>)}</div></div>
+    {needsApiKey&&<div className="md-key-notice" role="alert"><AlertCircle size={15}/><span>未配置 NodeImage API Key，暂时无法上传图片。</span>{onMediaSettings&&<button type="button" className="md-key-button" onClick={()=>{setNeedsApiKey(false);setMessage('');setMessageTone('info');onMediaSettings();}}><KeyRound size={14}/>填入 NodeImage API Key</button>}</div>}
     {picker&&<div className="md-stickers"><div className="md-sticker-tabs">{[...new Set(stickers.map(row=>row.group))].map(id=><button type="button" key={id} aria-pressed={group===id} onClick={()=>setGroup(id)}>{({ac:'AC娘',yct:'洋葱头',xhj:'小黄鸡',emoji:'Emoji'} as Record<string,string>)[id]||id}</button>)}<button type="button" onClick={()=>{if(onImportStickers)onImportStickers();else{const name=window.prompt('表情分组名称','自定义');if(name)window.seekdesk.importStickers(name).then(setStickers).catch(error=>setMessage(String(error)));}}}>导入表情…</button><button type="button" onClick={()=>setPicker(false)}>收起</button></div><div className="md-sticker-grid">{stickers.filter(row=>row.group===group).map(row=><button type="button" key={row.id} title={row.name} onClick={()=>void chooseSticker(row)}><img src={row.url} alt={row.name} loading="lazy"/></button>)}</div></div>}
     <div className={'md-body md-'+mode}>
       {mode!=='preview'&&<label className="md-editor"><span>{label}<small>Markdown</small></span><textarea ref={textarea} value={value} aria-label={label} disabled={locked} placeholder={placeholder} spellCheck={false} onSelect={remember} onBlur={remember} onChange={event=>{commit(event.target.value);remember();}} onKeyDown={keydown} onPaste={paste} onDrop={drop} onDragOver={event=>{if(event.dataTransfer.types.includes('Files'))event.preventDefault();}}/></label>}
       {mode!=='edit'&&<div className="md-preview"><div className="md-preview-title">实时预览</div><article className="prose" onClick={event=>{const image=(event.target as HTMLElement).closest('img');if(image&&!image.classList.contains('sticker'))setSelectedImage(image.getAttribute('src')||undefined);}} dangerouslySetInnerHTML={{__html:renderMarkdown(value,widths)}}/>{!value&&<p className="md-empty">在左侧输入内容，预览将在这里显示。</p>}</div>}
     </div>
     {selectedImage&&mode!=='edit'&&<div className="md-image-size"><label>预览图片宽度 <input type="number" disabled={locked} min={32} max={8192} value={widths[selectedImage]||''} placeholder="原始尺寸" onChange={event=>{const next={...widths},number=Number(event.target.value);if(Number.isFinite(number)&&number>=32&&number<=8192)next[selectedImage]=Math.round(number);else delete next[selectedImage];setWidths(next);}}/> px</label><button type="button" disabled={locked} onClick={()=>{const next={...widths};delete next[selectedImage];setWidths(next);}}>恢复原图</button><button type="button" onClick={()=>setSelectedImage(undefined)}>完成</button></div>}
-    <div className="md-status"><span aria-live="polite">{message||value.length+' 字符'}</span><label title="上传前处理图片宽度">上传宽度 <input type="number" min={32} max={8192} placeholder="原图" value={uploadWidth||''} onChange={event=>{const value=Number(event.target.value);setUploadWidth(value>=32&&value<=8192?Math.round(value):undefined);}}/> px</label><span>{sendShortcut==='ctrl-enter'?'Ctrl + Enter 发送':sendShortcut==='enter'?'Enter 发送 · Shift + Enter 换行':'点击发送按钮'}</span></div>
+    <div className="md-status"><span className={message&&messageTone==='error'?'md-status-error':undefined} aria-live="polite">{message||value.length+' 字符'}</span><label title="上传前处理图片宽度">上传宽度 <input type="number" min={32} max={8192} placeholder="原图" value={uploadWidth||''} onChange={event=>{const value=Number(event.target.value);setUploadWidth(value>=32&&value<=8192?Math.round(value):undefined);}}/> px</label><span>{sendShortcut==='ctrl-enter'?'Ctrl + Enter 发送':sendShortcut==='enter'?'Enter 发送 · Shift + Enter 换行':'点击发送按钮'}</span></div>
     <input ref={files} type="file" accept="image/*" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void upload(file);event.target.value='';}}/>
   </div>;
 }
