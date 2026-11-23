@@ -6,7 +6,11 @@ export function anonymousImageFetch(session:Session):typeof fetch{
     const url=String(input),signal=init.signal||undefined;
     if(signal?.aborted)throw signal.reason||Error('图片读取已取消');
     try{return await session.fetch(url,{...init,method:'GET',credentials:'omit',redirect:'error',cache:'no-cache',referrerPolicy:'no-referrer'});}
-    catch(error){if(signal?.aborted)throw error;}
+    catch(error){
+      if(signal?.aborted)throw error;
+      const detail=String((error as {message?:unknown;cause?:unknown})?.message||'')+' '+String((error as {cause?:unknown})?.cause||'');
+      if(/ERR_(?:NAME_NOT_RESOLVED|CONNECTION_REFUSED|CONNECTION_RESET|CONNECTION_CLOSED|CONNECTION_TIMED_OUT|TIMED_OUT|CERT_|SSL_|ADDRESS_UNREACHABLE|INTERNET_DISCONNECTED)/i.test(detail))throw error;
+    }
     // Electron fetch cannot expose a manual cross-origin redirect. Probe with
     // net.request, abort it at headers, and let the caller validate the next URL.
     return new Promise<Response>((resolve,reject)=>{
@@ -19,9 +23,14 @@ export function anonymousImageFetch(session:Session):typeof fetch{
       request.on('redirect',(status,_method,target)=>{if(ended)return;resolved=true;ended=true;cleanup();resolve(new Response(null,{status,headers:{Location:target}}));request.abort();});
       request.on('error',fail);
       request.on('response',incoming=>{
-        if(ended)return;const headers=new Headers();for(const [name,value]of Object.entries(incoming.headers))if(value!==undefined)headers.set(name,Array.isArray(value)?value.join(', '):value);
-        const body=new ReadableStream<Uint8Array>({start(stream){controller=stream;incoming.on('data',chunk=>{if(!ended)stream.enqueue(new Uint8Array(chunk));});incoming.on('end',()=>{if(ended)return;ended=true;cleanup();stream.close();});incoming.on('error',fail);incoming.on('aborted',()=>fail(Error('图片连接中断，请重试')));},cancel(){if(ended)return;ended=true;cleanup();request.abort();}});
-        resolved=true;resolve(new Response(body,{status:incoming.statusCode,headers}));
+        if(ended)return;
+        try{
+          const headers=new Headers();for(const [name,value]of Object.entries(incoming.headers))if(value!==undefined)headers.set(name,Array.isArray(value)?value.join(', '):value);
+          const status=incoming.statusCode;
+          if(status===204||status===205||status===304){resolved=true;ended=true;cleanup();resolve(new Response(null,{status,headers}));request.abort();return;}
+          const body=new ReadableStream<Uint8Array>({start(stream){controller=stream;incoming.on('data',chunk=>{if(!ended)stream.enqueue(new Uint8Array(chunk));});incoming.on('end',()=>{if(ended)return;ended=true;cleanup();stream.close();});incoming.on('error',fail);incoming.on('aborted',()=>fail(Error('图片连接中断，请重试')));},cancel(){if(ended)return;ended=true;cleanup();request.abort();}});
+          resolved=true;resolve(new Response(body,{status,headers}));
+        }catch(error){fail(error instanceof Error?error:Error(String(error)));request.abort();}
       });
       request.end();
     });

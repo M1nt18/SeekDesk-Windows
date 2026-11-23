@@ -208,7 +208,7 @@ export function DesktopUpdateCard({ version, onExternal }: { version: string; on
       {canDownload && <button className="primary-button" disabled={Boolean(pending) || loading} onClick={() => void act('apply')}><Download size={16}/>{pending === 'apply' ? '正在开始更新…' : '立即更新'}</button>}
       {downloading && <button className="secondary-button" disabled={pending === 'cancel'} onClick={() => void act('cancel')}>{pending === 'cancel' ? '正在取消…' : '取消下载'}</button>}
       {!downloading && !installing && state.status !== 'downloaded' && <button className="secondary-button" disabled={loading || Boolean(pending) || checking} onClick={() => void act('check')}><RefreshCw size={16} className={checking ? 'spin' : ''}/>{checking ? '正在检查…' : '检查更新'}</button>}
-      {(state.manualOnly || state.status === 'unsupported' || state.errorCode === 'manifest-missing') && <button className="text-button" onClick={() => onExternal(safeReleaseUrl)}>前往发布页<ExternalLink size={15}/></button>}
+      {(state.manualOnly || state.status === 'unsupported' || state.errorCode === 'manifest-missing' || state.errorCode === 'download' || state.errorCode === 'verification') && <button className="text-button" onClick={() => onExternal(safeReleaseUrl)}>前往发布页<ExternalLink size={15}/></button>}
     </div>
     {actionError && <p className="desktop-settings-error" role="alert">{actionError}</p>}
     {state.installable && !state.manualOnly && <p className="desktop-settings-note desktop-update-consent">后台下载并校验，完成后自动更新和重启，请先保存正在编辑的内容。</p>}

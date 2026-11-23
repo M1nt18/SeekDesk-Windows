@@ -3,4 +3,4 @@ owner: M1nt18
 repo: SeekDesk-Windows
 private: false
 releaseType: release
-updaterCacheDirName: updater-cache-v1
+updaterCacheDirName: seekdesk-windows-updater

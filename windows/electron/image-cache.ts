@@ -3,7 +3,7 @@ const cancelled=()=>Object.assign(Error('图片读取已取消'),{name:'AbortErr
 /** Shared work with per-caller cancellation, bounded decodes and a TTL byte budget. */
 export class ImageCache<T>{
   private cache=new Map<string,{value:T;bytes:number;expires:number}>();private pending=new Map<string,Job<T>>();
-  private waiting:(()=>void)[]=[];private active=0;private bytes=0;
+  private waiting:{job:Job<T>;run:()=>void}[]=[];private active=0;private bytes=0;
   constructor(private size:(value:T)=>number,private options={maxBytes:32_000_000,ttlMs:120_000,concurrency:2,maxWaiting:64,now:()=>Date.now()}){}
   get(key:string,load:(signal:AbortSignal)=>Promise<T>,refresh=false,signal?:AbortSignal):Promise<T>{
     if(signal?.aborted)return Promise.reject(cancelled());
@@ -15,9 +15,9 @@ export class ImageCache<T>{
     const run=()=>{this.active++;void Promise.resolve().then(()=>{if(job.controller.signal.aborted)throw cancelled();return load(job.controller.signal);}).then(value=>{
       if(job.controller.signal.aborted)throw cancelled();const bytes=this.size(value);
       if(bytes<=this.options.maxBytes){while(this.bytes+bytes>this.options.maxBytes&&this.cache.size)this.remove(this.cache.keys().next().value!);this.cache.set(key,{value,bytes,expires:this.options.now()+this.options.ttlMs});this.bytes+=bytes;}job.done=true;resolve(value);
-    }).catch(error=>{job.done=true;reject(error);}).finally(()=>{this.active--;this.waiting.shift()?.();});};
-    const cleanup=()=>{if(this.pending.get(key)===job)this.pending.delete(key);};void job.promise.then(cleanup,cleanup);job.controller.signal.addEventListener('abort',cleanup,{once:true});
-    const result=this.subscribe(job,signal);if(this.active<this.options.concurrency)run();else this.waiting.push(run);return result;
+    }).catch(error=>{job.done=true;reject(error);}).finally(()=>{this.active--;this.waiting.shift()?.run();});};
+    const cleanup=()=>{if(this.pending.get(key)===job)this.pending.delete(key);const index=this.waiting.findIndex(entry=>entry.job===job);if(index>=0)this.waiting.splice(index,1);};void job.promise.then(cleanup,cleanup);job.controller.signal.addEventListener('abort',cleanup,{once:true});
+    const result=this.subscribe(job,signal);if(this.active<this.options.concurrency)run();else this.waiting.push({job,run});return result;
   }
   private subscribe(job:Job<T>,signal?:AbortSignal):Promise<T>{
     job.users++;return new Promise<T>((resolve,reject)=>{let settled=false;

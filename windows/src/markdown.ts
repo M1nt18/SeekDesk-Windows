@@ -35,7 +35,7 @@ export function applyMarkdownCommand(value:string,start:number,end:number,comman
   start=Math.max(0,Math.min(value.length,start));end=Math.max(start,Math.min(value.length,end));const selected=value.slice(start,end);
   let replacement='',selectionStart=0,selectionLength=0;
   const wrap=(before:string,after:string,placeholder:string)=>{replacement=before+(selected||placeholder)+after;selectionStart=before.length;selectionLength=(selected||placeholder).length;};
-  const lines=(prefix:(index:number)=>string)=>{const lineStart=value.lastIndexOf('\n',Math.max(0,start-1))+1;const lineEnd=value.indexOf('\n',end);start=lineStart;end=lineEnd<0?value.length:lineEnd;replacement=value.slice(start,end).split('\n').map((row,index)=>prefix(index)+row).join('\n');selectionLength=replacement.length;};
+  const lines=(prefix:(index:number)=>string)=>{const lineStart=start===0?0:value.lastIndexOf('\n',start-1)+1;const lineEnd=value.indexOf('\n',end);start=lineStart;end=lineEnd<0?value.length:lineEnd;replacement=value.slice(start,end).split('\n').map((row,index)=>prefix(index)+row).join('\n');selectionLength=replacement.length;};
   switch(command){
     case 'bold':wrap('**','**','加粗文字');break;case 'italic':wrap('*','*','斜体文字');break;case 'strike':wrap('~~','~~','删除线文字');break;case 'code':wrap('`','`','代码');break;
     case 'heading':lines(()=> '## ');break;case 'quote':lines(()=>'> ');break;case 'bullets':lines(()=>'- ');break;case 'numbers':lines(index=>(index+1)+'. ');break;

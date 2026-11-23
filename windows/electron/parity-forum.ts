@@ -259,7 +259,7 @@ export function createWriteScript(input:unknown,expectedUid:number):string{
           if(ids.some(id=>!id||id<1))throw new Error('无法确认未读消息编号，请刷新后重试');
         }else if(request.category==='messages'){
           const data=await get('/api/notification/message/with/'+request.id);if(!Array.isArray(data.msgArray))throw new Error('无法确认私信记录');
-          ids=[...new Set(data.msgArray.filter(row=>Number(row.sender_id)===request.id&&Number(row.receiver_id)===owner&&[0,'0',false].includes(row.viewed)).map(row=>integer(row.id)).filter(id=>id&&id>0))];
+          ids=[...new Set(data.msgArray.filter(row=>Number(row.sender_id)===request.id&&Number(row.receiver_id)===owner&&!flag(row.viewed)).map(row=>integer(row.id)).filter(id=>id&&id>0))];
         }
         if(!ids.length)return {message:'消息已读'};
         await post('/api/notification/'+path+'/markViewed',{[field]:ids});return {message:'已标记为已读'};

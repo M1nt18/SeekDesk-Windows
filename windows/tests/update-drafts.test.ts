@@ -118,6 +118,14 @@ test('old account and successfully submitted detached drafts cannot block or rep
     current=false;await unmount();await flushUpdateDrafts({owner:7});assert.equal(writes,1,'accepted send invalidates the detached draft before a retry');
   },{owner:7,saveOnUnmount:true,isCurrent:()=>current});
 });
+test('terminal unready-draft errors on unmount do not permanently block later update flushes',async()=>{
+  await mountedSavers(async(render,unmount)=>{
+    await render([()=>saveUpdateDraft({owner:7,key:'new-topic',scope:'7:new-topic',ready:false,value:{content:'unsaved',title:'t'}},{scope:()=>'7:new-topic',busy:()=>false},async()=>{})]);
+    await unmount();
+    await Promise.resolve();
+    await flushUpdateDrafts({owner:7});
+  },{owner:7,saveOnUnmount:true});
+});
 
 const snapshot=(overrides:Partial<UpdateDraftSnapshot>={}):UpdateDraftSnapshot=>({owner:7,key:'new-topic',scope:'7:new-topic',ready:true,value:{title:'Title',content:'last character',category:'tech',rank:2,imageWidths:{'https://example.com/a.png':320}},...overrides});
 

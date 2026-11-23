@@ -58,16 +58,14 @@ export class Store {
     } catch(error) {if((error as NodeJS.ErrnoException).code!=='ENOENT')this.problem='偏好配置无法读取，原文件已保留；设置和工作区暂停保存，请修复后重新启动应用';}
   }
   save() {
-    const workspace=structuredClone(this.workspace),blockedUsers=[...this.blockedUsers];
-    // Workspace writes queued behind a settings commit must use its confirmed settings.
-    this.queue = this.queue.catch(() => {}).then(() => this.persist(this.settings,workspace,blockedUsers));
+    this.queue = this.queue.catch(() => {}).then(() => this.persist(this.settings, structuredClone(this.workspace), [...this.blockedUsers]));
     return this.queue;
   }
   commitSettings(value:unknown) {
-    const next=validateSettings(value),workspace=structuredClone(this.workspace),blockedUsers=[...this.blockedUsers];
+    const next=validateSettings(value);
     const task=this.queue.catch(()=>{}).then(async()=>{
       const previous=this.settings;
-      await this.persist(next,workspace,blockedUsers);
+      await this.persist(next,structuredClone(this.workspace),[...this.blockedUsers]);
       this.settings=next;
       return {settings:{...next},previous:{...previous}};
     });

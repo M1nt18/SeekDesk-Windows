@@ -70,6 +70,11 @@ export function acceptComposerSubmission(ticket:ComposerSubmission):void {
     const snapshot=record.key.startsWith('edit:')?copy(record.snapshot):{...copy(record.snapshot),content:'',...(record.snapshot.title!==undefined?{title:''}:{}),imageWidths:{}};
     drafts.set(scope(record.owner,record.key),{snapshot,intent:0,origin:'accepted'});
   }
+  let acceptedCount=0;
+  for(const entry of submissions.values())if(entry.state==='accepted')acceptedCount++;
+  if(acceptedCount>200){
+    for(const [id,entry] of submissions){if(entry.state==='accepted'){submissions.delete(id);if(--acceptedCount<=200)break;}}
+  }
   notify();
 }
 export function rejectComposerSubmission(ticket:ComposerSubmission):void {

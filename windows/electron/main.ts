@@ -277,10 +277,13 @@ function getReader(metadata=false):BrowserWindow {
   // cannot hold the document queue, and no third hidden renderer is needed.
   const win=new BrowserWindow({show:false,width:1200,height:900,webPreferences:{...remoteOptions(),backgroundThrottling:false}});
   if(metadata)profileWindow=win;else readerWindow=win;
+  const resetWin=()=>{if(readerWindow===win)readerWindow=null;if(profileWindow===win)profileWindow=null;if(!win.isDestroyed())win.destroy();};
   secureRemote(win.webContents,false,true);
+  win.webContents.on('render-process-gone',resetWin);
   const setup=(async()=>{
     await bounded(win.loadURL('about:blank'),6000,'读取页初始化超时');
     const debuggerApi=win.webContents.debugger;debuggerApi.attach('1.3');
+    debuggerApi.on('detach',resetWin);
     await bounded(debuggerApi.sendCommand('Page.enable'),6000,'读取页调试通道初始化超时');
     // Only these hidden targets skip media. The official login view shares the
     // session, so session-wide request interception would break its UI/captcha.
@@ -301,6 +304,7 @@ function getReader(metadata=false):BrowserWindow {
     // revalidated, so asset reuse never substitutes an old reply document.
     if(!metadata)await bounded(debuggerApi.sendCommand('Page.addScriptToEvaluateOnNewDocument',{source:captureTerminalsScript}),6000,'终端报告初始化超时');
   })();
+  setup.catch(resetWin);
   readerSetup.set(win,setup);
   win.on('closed',()=>{if(readerWindow===win)readerWindow=null;if(profileWindow===win)profileWindow=null;});
   return win;
@@ -372,10 +376,14 @@ function onWebsite<T>(url: string, script: string, options: {timeout?:number;act
       if (!result) throw new Error('当前官网内容不可读取，请在官方窗口查看');
       return result;
     } catch (error) {
-      if (!win.isDestroyed()) win.webContents.stop();
+      const message=error instanceof Error?error.message:'';
+      if (!win.isDestroyed()) {
+        if(/验证|跳转|初始化超时/.test(message)){if(readerWindow===win)readerWindow=null;if(profileWindow===win)profileWindow=null;win.destroy();}
+        else win.webContents.stop();
+      }
       // A slow resource or API is not a site challenge. Ordinary transient
       // failures must allow the next refresh instead of locking all reads 60s.
-      if(version === generation && !options.action && /验证|跳转/.test(error instanceof Error?error.message:'')) verificationUntil = Date.now() + 60000;
+      if(version === generation && !options.action && /验证|跳转/.test(message)) verificationUntil = Date.now() + 60000;
       throw error;
     }
   });
@@ -657,14 +665,13 @@ function registerIPC() {
     destroyOfficial(); readerWindow?.destroy();
     readerWindow=null;
     avatarCache.clear();
-    store.workspace={tabs:[],activeId:null};
     verificationUntil=0;
     setAccount({status:'signed-out'});
     try{
       await forumSession.clearStorageData();
       await forumSession.clearCache();
       await forumSession.closeAllConnections();
-      try{await store.save();}catch{throw Error('会话已清除，但工作区无法保存；旧账号访问已失效');}
+      try{await store.commitWorkspace({tabs:[],activeId:null});}catch{throw Error('会话已清除，但工作区无法保存；旧账号访问已失效');}
     }finally{clearingSession=false;}
   });
   handle('app:settings', async (value: unknown) => {
@@ -682,7 +689,7 @@ function registerIPC() {
     return next;
   });
   handle('app:workspace',(value:unknown)=>store.commitWorkspace(value));
-  ipcMain.on('app:window',(event,action) => {assertLocal(event); if (action==='close') mainWindow?.close(); else if(action==='minimize') mainWindow?.minimize(); else if(action==='maximize' && mainWindow) {if(mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize();}});
+  ipcMain.on('app:window',(event,action) => {try{assertLocal(event); if (action==='close') mainWindow?.close(); else if(action==='minimize') mainWindow?.minimize(); else if(action==='maximize' && mainWindow && !mainWindow.isDestroyed()) {if(mainWindow.isMaximized()) mainWindow.unmaximize(); else mainWindow.maximize();}}catch{}});
 }
 function createMain() {
   let captureStarted=false;
@@ -720,7 +727,8 @@ else {
     store = new Store(app.getPath('userData'));
     await store.load();
     features=new ParityStore(app.getPath('userData'));
-    const imageSession=session.fromPartition('public-media');imageSession.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));imageSession.setPermissionCheckHandler(()=>false);
+    const imageSession=session.fromPartition('public-media');imageSession.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));imageSession.setPermissionCheckHandler(()=>false);imageSession.on('will-download',event=>event.preventDefault());
+    const extensionsSession=session.fromPartition('public-extensions');extensionsSession.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));extensionsSession.setPermissionCheckHandler(()=>false);extensionsSession.on('will-download',event=>event.preventDefault());
     media=new MediaService(app.getPath('userData'),()=>mainWindow,{fetchImage:anonymousImageFetch(imageSession)});
     readingLibrary=new ReadingLibraryStore(app.getPath('userData'));
     await Promise.all([features.load(),features.loadReceipts(),media.load(),readingLibrary.load()]);
@@ -729,13 +737,14 @@ else {
     updater=new UpdaterService({currentVersion:app.getVersion(),isPackaged:app.isPackaged,isInstalled:installed,userDataDirectory:app.getPath('userData'),automaticChecks:desktopWindow.getPreferences().automaticUpdates!==false,beforeInstall:()=>prepareRendererSave('update'),onChange:state=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('app:update-change',state);}});
     extensions=new ExtensionsService(features.extensions,{
       getAccount:()=>account,
+      fetchPublic:(input,init)=>extensionsSession.fetch(String(input),{...init,credentials:'omit',redirect:'error'}),
       readAttendance:async()=>{const result=await queryForum({kind:'attendance-status'});return result.attendance||{kind:'failed'};},
       performAttendance:async(mode)=>{const result=await writeForum({kind:'attendance',mode},true);return result.attendance||{kind:'failed',message:result.message};},
-      onChange:(state,persisted)=>{features.extensions=state;if(!persisted)void features.save().catch(error=>console.error('保存扩展设置失败',error));mainWindow?.webContents.send('extensions:change',state);},
+      onChange:(state,persisted)=>{features.extensions=state;if(!persisted)void features.save().catch(error=>console.error('保存扩展设置失败',error));if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('extensions:change',state);},
       onBossKey:configureBoss,
-      onMatch:hit=>{if(!extensions.getState().watchSystemNotifications||!Notification.isSupported())return;const notification=new Notification({title:'SeekDesk · 关键词提醒',body:hit.post.title,silent:false});notification.on('click',()=>{mainWindow?.show();mainWindow?.focus();mainWindow?.webContents.send('app:open-post',hit.post);});notification.show();}
+      onMatch:hit=>{if(!extensions.getState().watchSystemNotifications||!Notification.isSupported())return;const notification=new Notification({title:'SeekDesk · 关键词提醒',body:hit.post.title,silent:false});notification.on('click',()=>{desktopWindow?.show();if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('app:open-post',hit.post);});notification.show();}
     });
-    userscriptHost=new UserscriptHost({storageDirectory:path.join(app.getPath('userData'),'userscripts'),storageProtection:safeStorage,onManageCredentials:()=>{closeOfficial();mainWindow?.webContents.send('script:credentials-open');},onState:state=>mainWindow?.webContents.send('script:state-change',state),getOfficialContents:()=>officialState.purpose==='calculator'?null:officialView?.webContents ?? null,isEnabled:()=>store.settings.nodeSeekPro&&officialState.purpose!=='calculator',onOpen:async(url:string)=>{if(isOfficialUrl(url))await openOfficial(url);else await shell.openExternal(safeHttp(url));}});
+    userscriptHost=new UserscriptHost({storageDirectory:path.join(app.getPath('userData'),'userscripts'),storageProtection:safeStorage,onManageCredentials:()=>{closeOfficial();if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('script:credentials-open');},onState:state=>{if(mainWindow&&!mainWindow.isDestroyed())mainWindow.webContents.send('script:state-change',state);},getOfficialContents:()=>officialState.purpose==='calculator'?null:officialView?.webContents ?? null,isEnabled:()=>store.settings.nodeSeekPro&&officialState.purpose!=='calculator',onOpen:async(url:string)=>{if(isOfficialUrl(url))await openOfficial(url);else await shell.openExternal(safeHttp(url));}});
     await userscriptHost.load();
     userscriptHost.registerIPC(ipcMain);
     registerIPC();

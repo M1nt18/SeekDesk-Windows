@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {gzipSync} from 'node:zlib';
 import {EventEmitter} from 'node:events';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
@@ -20,6 +21,8 @@ test('locally generated update metadata is accepted and its complete installer i
   try{
     const payload=Buffer.alloc(1_000_001,0x53),filename=`SeekDesk-Windows-${version}-x64-Setup.exe`;
     await fs.writeFile(path.join(directory,filename),payload);
+    const blockmap={version:'2',files:[{name:filename,offset:0,sizes:[payload.length],checksums:[createHash('sha256').update(payload).digest('base64')]}]};
+    await fs.writeFile(path.join(directory,`${filename}.blockmap`),gzipSync(JSON.stringify(blockmap)));
     await prepareUpdate(directory);
     const metadata=load(await fs.readFile(path.join(directory,'latest.yml'),'utf8'));
     assert.equal(metadata.version,version);assert.equal(metadata.files.length,1);

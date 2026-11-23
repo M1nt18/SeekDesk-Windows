@@ -12,10 +12,14 @@ async function prepareUpdate(output=path.join(project,pkg.build.directories.outp
   const filename=`SeekDesk-Windows-${pkg.version}-x64-Setup.exe`,artifact=path.join(directory,filename);
   const stat=await fs.lstat(artifact);
   if(!stat.isFile()||stat.isSymbolicLink()||stat.size<1_000_000)throw Error('缺少已构建的完整 x64 安装程序');
-  const blockmap=filename+'.blockmap';
-  const map=JSON.parse(require('node:zlib').gunzipSync(await fs.readFile(path.join(directory,blockmap))).toString('utf8'));
-  if(!Array.isArray(map.files)||map.files.length!==1||map.files[0].sizes?.length!==map.files[0].checksums?.length||
-     map.files[0].sizes.reduce((sum,size)=>sum+size,0)!==stat.size)throw Error('安装包和差分索引不匹配，请重新构建');
+  const blockmap=filename+'.blockmap',blockmapPath=path.join(directory,blockmap);
+  const blockmapStat=await fs.lstat(blockmapPath);
+  if(!blockmapStat.isFile()||blockmapStat.isSymbolicLink()||blockmapStat.size<=0)throw Error('缺少有效的差分索引文件');
+  const map=JSON.parse(require('node:zlib').gunzipSync(await fs.readFile(blockmapPath)).toString('utf8'));
+  const entry=Array.isArray(map?.files)&&map.files.length===1?map.files[0]:null;
+  if(map?.version!=='2'||!entry||!Array.isArray(entry.sizes)||!Array.isArray(entry.checksums)||!entry.sizes.length||
+     entry.sizes.length!==entry.checksums.length||entry.sizes.some(size=>!Number.isSafeInteger(size)||size<=0)||
+     entry.sizes.reduce((sum,size)=>sum+size,0)!==stat.size)throw Error('安装包和差分索引不匹配，请重新构建');
   const hash=createHash('sha512');for await(const chunk of createReadStream(artifact))hash.update(chunk);
   const sha512=hash.digest('base64');
   const yaml=`version: ${pkg.version}\nfiles:\n  - url: ${filename}\n    sha512: ${sha512}\n    size: ${stat.size}\npath: ${filename}\nsha512: ${sha512}\nreleaseDate: '${new Date().toISOString()}'\n`;

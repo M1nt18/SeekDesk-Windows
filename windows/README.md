@@ -1,12 +1,12 @@
-# SeekDesk Windows 0.1.5 · 开发说明
+# SeekDesk Windows 0.1.6 · 开发说明
 
 使用 Electron、React 和 TypeScript 移植 SeekDesk V1.0.0。上游参考提交为 `84e99c6cb24e66c5bbccb6382380ae72b9924d4b`，父目录的 Swift 源码保持原样。界面以四张原版截图为参考，保留原版导航和工具。
 
 详细功能、截图和首次使用指南见 [仓库首页 README](../README.md)。
 
-已打包的安装版和免安装版见 [v0.1.5 发布页](https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.5)。开发者首次获取或更新源码后执行 `npm ci` 和 `npm run build`；已有编译结果时可双击“启动调试版.cmd”运行。
+已打包的安装版和免安装版见 [v0.1.6 发布页](https://github.com/M1nt18/SeekDesk-Windows/releases/tag/v0.1.6)。开发者首次获取或更新源码后执行 `npm ci` 和 `npm run build`；已有编译结果时可双击“启动调试版.cmd”运行。
 
-0.1.5 发布加载优化、存储故障保护、Pro 凭据加密与图片资源修复，保留 0.1.2 的资料库、自动续读和一键更新，见 [更新说明](docs/releases/v0.1.5.md)。0.1.2 安装版可检查并点“立即更新”；0.1.1 使用旧界面的下载和重启按钮，免安装版仍手动下载。
+0.1.6 包含新一轮全量代码审查与稳定性修复（主进程读取/网络/缓存加固、增量更新修复、草稿/模态层/长帖图片/私信已读同步修复），见 [更新说明](docs/releases/v0.1.6.md)。0.1.2 及以上安装版可检查并点“立即更新”；0.1.1 使用旧界面的下载和重启按钮，免安装版仍手动下载。
 
 ## 当前功能
 
@@ -26,7 +26,7 @@
 
 本轮逐项源码和验证对应关系见 [0.1.5 完整审计](docs/REVIEW-2026-11-18.md)；此前记录保留于 [源码复核](docs/SOURCE-RECHECK-2026-11-14.md) 和 [资料库合并验收](docs/ALTERNATE-VERSION-COMPARISON.md)；较早记录保留于 [0.1.1 核对清单](docs/parity-audit.md) 与 [功能移植清单](docs/FEATURE-PARITY.md)。
 
-此前 0.1.2 的资料卡、官网黑名单和串行 300 ms 资料请求继续保留，接口范围见 [Pro 接口记录](docs/PRO-API-AUDIT-2026-11-16.md)。本版提高版本号至 0.1.5，可由旧安装版检查升级。
+此前 0.1.2 的资料卡、官网黑名单和串行 300 ms 资料请求继续保留，接口范围见 [Pro 接口记录](docs/PRO-API-AUDIT-2026-11-16.md)。本版提高版本号至 0.1.6，可由旧安装版检查升级。
 
 ## 登录与数据
 

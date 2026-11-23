@@ -21,3 +21,12 @@ test('image decoding has a concurrency and byte ceiling, and failures release th
   const a=cache.get('a',()=>new Promise(resolve=>{started++;finish=resolve;})),b=cache.get('b',async()=>{started++;throw Error('decode failure');}),rejected=assert.rejects(b,/decode/),c=cache.get('c',async()=>{started++;return '123456';});await Promise.resolve();assert.equal(started,1);assert.equal(cache.stats().waiting,2);await assert.rejects(cache.get('d',async()=> '1'),/队列已满/);finish('1234');await a;await rejected;await c;assert.equal(cache.stats().bytes,4);assert.equal(cache.stats().cached,1);
   await cache.get('e',async()=> '123');assert.equal(cache.stats().bytes,3);
 });
+test('aborting a full waiting queue immediately frees waiting slots while active jobs run',async()=>{
+  const cache=new ImageCache<string>(s=>s.length,{maxBytes:20,ttlMs:100,concurrency:1,maxWaiting:1,now:()=>0});let finish!:(value:string)=>void;
+  const active=cache.get('active',()=>new Promise(resolve=>finish=resolve));await Promise.resolve();
+  const controller=new AbortController(),queued=cache.get('queued',async()=>'queued',false,controller.signal),rejected=assert.rejects(queued,/已取消/);
+  assert.equal(cache.stats().waiting,1);
+  controller.abort();await rejected;assert.equal(cache.stats().waiting,0);
+  const replacement=cache.get('replacement',async()=>'ok');assert.equal(cache.stats().waiting,1);
+  finish('done');await active;assert.equal(await replacement,'ok');
+});

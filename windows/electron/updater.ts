@@ -462,18 +462,19 @@ export class UpdaterService {
   /** Only this app's validated cache is traversed. Pending or active installers
    * are exempt from age/size eviction; unknown process state always preserves. */
   async cleanup():Promise<void> {
-    if(this.disposed||this.downloadTask||this.installTask||this.installing)return;
+    const busyState=()=>this.disposed||Boolean(this.downloadTask||this.installTask||this.installing);
+    if(busyState())return;
     await this.prepareCache();
-    if(this.disposed)return;
+    if(busyState())return;
     const receipt=this.receipt||await this.readReceipt();
-    if(this.disposed)return;
+    if(busyState())return;
     const files=await this.filesIn(this.cache);
-    if(this.disposed)return;
+    if(busyState())return;
     let protectPending=Boolean(receipt&&compareUpdateVersions(receipt.version,this.options.currentVersion)>0);
     let busy=false;
     if(receipt?.phase==='installing'){
       busy=await (this.options.installerBusy||defaultInstallerBusy)(receipt.file);
-      if(this.disposed)return;
+      if(busyState())return;
       if(busy){protectPending=true;this.scheduleCleanupRetry();}
     }
     if(!busy){clearTimeout(this.cleanupRetry);this.cleanupRetry=undefined;}
@@ -484,10 +485,10 @@ export class UpdaterService {
     const candidates=files.filter(item=>!(protectPending&&protectedFiles.has(item.file)));
     let total=files.reduce((sum,item)=>sum+item.size,0);
     for(const item of candidates.sort((a,b)=>a.mtime-b.mtime)){
-      if(this.disposed)return;
+      if(busyState())return;
       if(installed||this.now()-item.mtime>7*DAY||total>MAX_CACHE_BYTES){
         if(/\.(exe|tmp)$/i.test(item.file)&&await (this.options.installerBusy||defaultInstallerBusy)(path.basename(item.file)))continue;
-        if(this.disposed)return;
+        if(busyState())return;
         await this.io.unlink(item.file);total-=item.size;
         if(item.file===path.join(this.cache,RECEIPT))this.receipt=undefined;
       }

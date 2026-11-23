@@ -21,8 +21,8 @@ function startSave(entry:DraftRegistration):Promise<unknown> {
   if(entry.pending)return entry.pending;
   const task=Promise.resolve().then(()=>entry.isCurrent()?entry.save():undefined);
   entry.pending=task;
-  // Both branches handle the promise; a failed unmount save remains retryable.
-  void task.then(()=>{entry.pending=undefined;detached.delete(entry);},()=>{entry.pending=undefined;});
+  // Transient disk failures remain retryable; frozen terminal state errors on unmounted views must not brick future exits.
+  void task.then(()=>{entry.pending=undefined;detached.delete(entry);},(error:unknown)=>{entry.pending=undefined;if(detached.has(entry)&&(error as {terminal?:boolean}|null)?.terminal)detached.delete(entry);});
   return task;
 }
 
@@ -83,12 +83,12 @@ export async function saveUpdateDraft(
   save:(key:string,value:DraftValue,owner:number)=>Promise<void>,
 ):Promise<void> {
   if(!snapshot.owner||snapshot.readOnly)return;
-  if(snapshot.scope!==current.scope())throw new Error('草稿所属账号或页面已变化，请稍后更新');
+  if(snapshot.scope!==current.scope())throw Object.assign(new Error('草稿所属账号或页面已变化，请稍后更新'),{terminal:true});
   if(current.busy())throw new Error('内容正在发送或发布，请完成后再更新');
   if(!snapshot.ready){
-    if(snapshot.value.content||snapshot.value.title)throw new Error('草稿尚未读取完成，请稍后更新');
+    if(snapshot.value.content||snapshot.value.title)throw Object.assign(new Error('草稿尚未读取完成，请稍后更新'),{terminal:true});
     return;
   }
   await save(snapshot.key,snapshot.value,snapshot.owner);
-  if(snapshot.scope!==current.scope()||current.busy())throw new Error('草稿状态已变化，请稍后重试更新');
+  if(snapshot.scope!==current.scope()||current.busy())throw Object.assign(new Error('草稿状态已变化，请稍后重试更新'),{terminal:true});
 }

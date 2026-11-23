@@ -74,7 +74,7 @@ export class ParityStore{
   private draftHash(draft:DraftValue){return createHash('sha256').update(JSON.stringify([draft.content,Object.entries(draft.imageWidths||{}).sort(([a],[b])=>a.localeCompare(b))])).digest('hex');}
   private wasSubmitted(owner:number,key:string,draft:DraftValue){const receipt=this.receipts[owner+':'+key]||this.pendingReceipts.get(owner+':'+key);if(!receipt)return false;const edited=Date.parse(draft.updatedAt||'')||0;return edited<=receipt.submittedAt||edited<=receipt.acceptedAt&&this.draftHash(draft)===receipt.hash;}
   markReplySubmitted(owner:number,key:string,draft:DraftValue,submittedAt:number){
-    this.key(key);const scope=owner+':'+key,receipt={hash:this.draftHash(draft),submittedAt,acceptedAt:Date.now()};this.pendingReceipts.set(scope,receipt);
+    this.key(key);const scope=owner+':'+key,receipt={hash:this.draftHash(draft),submittedAt,acceptedAt:Math.max(submittedAt,Date.now())};this.pendingReceipts.set(scope,receipt);
     return this.persistPendingReceipt(scope);
   }
   private persistPendingReceipt(_scope:string){const task=this.queue.catch(()=>{}).then(()=>this.flushReceipts());this.queue=task;return task;}

@@ -34,7 +34,9 @@ export function keepReadingPosition(reader:HTMLElement,position:number,anchor:Th
   const schedule=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(apply);};
   const finish=()=>{if(stopped)return;dispose();onFinish();};
   const key=(event:KeyboardEvent)=>{if(!['Shift','Control','Alt','Meta'].includes(event.key))finish();};
-  const observer=new ResizeObserver(schedule);observer.observe(reader.querySelector('.reader-document')||reader);
+  const observed=reader.querySelector('.reader-document')||reader;
+  let lastHeight=observed.getBoundingClientRect().height;
+  const observer=new ResizeObserver(()=>{const height=observed.getBoundingClientRect().height;if(Math.abs(height-lastHeight)<1)return;lastHeight=height;schedule();});observer.observe(observed);
   const timer=setTimeout(finish,35000);
   function dispose(){stopped=true;clearTimeout(timer);cancelAnimationFrame(frame);observer.disconnect();window.removeEventListener('wheel',finish,true);window.removeEventListener('touchstart',finish,true);window.removeEventListener('pointerdown',finish,true);window.removeEventListener('keydown',key,true);}
   window.addEventListener('wheel',finish,{capture:true,passive:true});window.addEventListener('touchstart',finish,{capture:true,passive:true});window.addEventListener('pointerdown',finish,true);window.addEventListener('keydown',key,true);apply();return dispose;

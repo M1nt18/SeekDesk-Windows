@@ -3,7 +3,7 @@ import {useLayoutEffect,useRef,type RefObject} from 'react';
 export const modalSelector='[aria-modal="true"]:is([role="dialog"],[role="alertdialog"])';
 const layers=new Map<HTMLElement,()=>void>();
 let inerted=new Map<HTMLElement,boolean>();
-const top=()=>[...document.querySelectorAll<HTMLElement>(modalSelector)].filter(node=>layers.has(node)).at(-1);
+const top=()=>[...layers.keys()].filter(node=>node.isConnected&&node.matches(modalSelector)).at(-1);
 const focusable=(node:HTMLElement)=>[...node.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input:not(:disabled),textarea:not(:disabled),select:not(:disabled),[tabindex]:not([tabindex="-1"])')].filter(item=>item.getClientRects().length&&!item.closest('[inert],[hidden]'));
 const focusFirst=(node:HTMLElement)=>{const items=focusable(node);(items.find(item=>item.hasAttribute('autofocus'))||items[0]||node).focus();};
 function sync(){
