@@ -4,7 +4,7 @@
 .user-profile-card h3 {font-size:1.2rem;margin:0 0 5px;}
 .user-profile-card header p {font-size:max(12px,.78rem);color:var(--muted);margin:0 0 7px;}
 .user-profile-badges {display:flex;gap:5px;flex-wrap:wrap;}
-.user-profile-metrics {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:0 0 15px;}
+.user-profile-metrics {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:0 0 15px;}
 .user-profile-metrics>div {display:flex;flex-direction:column;gap:5px;padding:10px;border-radius:6px;background:var(--surface-alt);}
 .user-profile-metrics span {color:var(--muted);font-size:max(12px,.77rem);}
 .user-profile-metrics strong {font-size:1.1rem;font-variant-numeric:tabular-nums;}
